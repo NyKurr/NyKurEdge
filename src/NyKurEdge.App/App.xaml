@@ -23,6 +23,7 @@
             <SolidColorBrush x:Key="NyKurAccentBrush" Color="{StaticResource NyKurAccentColor}" />
             <SolidColorBrush x:Key="NyKurAccentSoftBrush" Color="#507286E8" />
             <SolidColorBrush x:Key="NyKurAccentFaintBrush" Color="#187286E8" />
+            <SolidColorBrush x:Key="NyKurGlassTraceBrush" Color="#8CEFF4F8" />
 
             <!-- Keep native controls inside NyKur Edge's single-accent visual system. -->
             <StaticResource x:Key="SliderThumbBackground" ResourceKey="NyKurAccentBrush" />

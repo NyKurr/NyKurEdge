@@ -2,7 +2,8 @@
 
 NyKur Edge is a native Windows desktop companion that keeps media, notifications,
 and ambient glances attached to the edge of the primary display. Its normal idle
-surface is a 14-pixel rail; the full control surface appears only when requested.
+surface is a localized 82-by-320-DIP fluid-glass form with a 14-DIP anchor; the
+contextual control surface appears only when requested.
 
 This repository contains the initial `0.1.0` vertical slice. It is a real packaged
 WinUI 3 application, not a browser shell or throwaway prototype.
@@ -12,17 +13,21 @@ WinUI 3 application, not a browser shell or throwaway prototype.
 - Borderless, topmost Edge window that stays out of Alt+Tab and does not activate
   merely because it appears.
 - DPI-aware left/right anchoring to the primary monitor work area.
+- Localized tapered input/window region instead of a transparent full-height edge.
+- Layered reusable Bézier traces, restrained bloom, and an integrated glass orb.
 - Cubic-eased hover expansion with a collapse grace period.
 - Windows global media-session discovery, live metadata, artwork, timeline, and
   previous/play-pause/next/seek commands.
 - Artwork-derived automatic accents using OKLab candidate scoring and restrained
   chroma/lightness normalization.
 - Persisted manual accent mode with a native WinUI color picker.
-- Low-duty-cycle procedural edge motion with explicit labeling that it is not yet
+- Low-allocation procedural edge motion with separate idle/playing cadences and an
+  explicit signal-source seam for future real audio data; it is not yet
   audio-reactive.
 - Generic glance coordinator and scheduled/previewable clock glance.
 - Supported `UserNotificationListener` integration, source filtering, privacy
-  levels, permission state, notification preview state, and ripple/pulse visuals.
+  levels, permission state, notification preview state, and a bubble/icon/ripple
+  arrival sequence.
 - Guided notification setup that explains why Windows banners must be disabled
   per source application rather than intercepted by unsupported means.
 - JSON settings persistence and packaged `StartupTask` integration.
@@ -62,8 +67,8 @@ dotnet run --project src\NyKurEdge.App\NyKurEdge.App.csproj --configuration Debu
 and waits for it to exit. The normal Edge window is intentionally absent from
 Alt+Tab and the taskbar.
 
-For a bounded visual-inspection build that is targetable by UI automation and
-pinned open, build with:
+For a bounded visual-inspection build that is targetable by UI automation and has
+compile-only state-preview accelerators, build with:
 
 ```powershell
 dotnet build src\NyKurEdge.App\NyKurEdge.App.csproj --configuration Debug -p:NyKurEdgeVisualTest=true

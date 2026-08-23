@@ -76,5 +76,13 @@ For meaningful changes:
 5. close the test instance immediately after visual validation.
 
 The optional `NyKurEdgeVisualTest=true` MSBuild property creates a Debug-only,
-targetable, pinned-open Edge window for bounded automation. It must not be used as
-the normal runtime configuration.
+targetable Edge window for bounded automation. Its compile-only accelerators are:
+
+- `F6`: toggle idle/playing motion;
+- `F7`: preview the notification orb/icon/ripple sequence;
+- `F8`: cycle restrained accent samples;
+- `F9`: toggle collapsed/expanded presentation;
+- `F10`: mirror right/left placement.
+
+It must not be used as the normal runtime configuration. Always close the test
+window and verify no `NyKurEdge.App`/`winapp` process remains after inspection.

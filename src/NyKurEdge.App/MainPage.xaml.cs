@@ -12,6 +12,7 @@ using NyKurEdge.App.Presentation.Animations;
 using NyKurEdge.App.Presentation.Edge;
 using NyKurEdge.App.Presentation.ViewModels;
 using NyKurEdge.Core.Appearance;
+using NyKurEdge.Core.Display;
 using NyKurEdge.Core.Notifications;
 using NyKurEdge.Core.Settings;
 using NyKurEdge.Core.State;
@@ -28,12 +29,29 @@ public sealed partial class MainPage : Page, IDisposable
     private readonly EdgeInteractionStateMachine _stateMachine = new();
     private readonly DispatcherQueueTimer _collapseTimer;
     private readonly DispatcherQueueTimer _accentSaveTimer;
-    private readonly ProceduralEdgeAnimator _edgeAnimator;
+    private readonly EdgeWaveRenderer _edgeRenderer;
+    private readonly EdgeBubbleController _bubbleController;
     private readonly AccentTransitionController _accentController;
     private AccentColor _pendingManualAccent = AccentColor.Default;
     private bool _loadingSettings;
     private bool _settingsOpen;
     private bool _cleanedUp;
+#if NYKUR_EDGE_VISUAL_TEST
+    private static readonly AccentColor[] VisualTestAccents =
+    [
+        new(104, 184, 146),
+        new(168, 134, 216),
+        new(215, 151, 104),
+        new(210, 123, 134),
+        new(174, 183, 194),
+    ];
+
+    private EdgeSide _visualTestSide;
+    private bool _visualTestPlaying;
+    private bool _visualTestExpanded;
+    private int _visualTestAccentIndex;
+    private readonly List<KeyboardAccelerator> _visualTestAccelerators = [];
+#endif
 
     public MainPage(AppServices services, EdgeWindowController windowController)
     {
@@ -54,7 +72,21 @@ public sealed partial class MainPage : Page, IDisposable
         _accentSaveTimer.IsRepeating = false;
         _accentSaveTimer.Tick += OnAccentSaveTimerTick;
 
-        _edgeAnimator = new ProceduralEdgeAnimator(EdgeWave, EdgeRail);
+        _edgeRenderer = new EdgeWaveRenderer(
+            EdgeSurface,
+            WaveBloom,
+            WaveOuterTrace,
+            WaveSecondaryTrace,
+            WaveCoreTrace);
+        _bubbleController = new EdgeBubbleController(
+            EdgeSurface,
+            BubbleBreathHost,
+            BubbleBody,
+            NotificationIconHost,
+            IncomingNotificationPulse,
+            NotificationHaloPrimary,
+            NotificationHaloSecondary,
+            UnreadRing);
         _accentController = new AccentTransitionController(
             (GetApplicationBrush("NyKurAccentBrush"), 255),
             (GetApplicationBrush("NyKurAccentSoftBrush"), 80),
@@ -68,6 +100,14 @@ public sealed partial class MainPage : Page, IDisposable
         ViewModel.GlanceVisibilityChanged += OnGlanceVisibilityChanged;
         _windowController.ExpansionProgressChanged += OnExpansionProgressChanged;
 
+#if NYKUR_EDGE_VISUAL_TEST
+        _visualTestSide = ViewModel.Settings.EdgeSide;
+        RegisterVisualTestAccelerator(VirtualKey.F6);
+        RegisterVisualTestAccelerator(VirtualKey.F7);
+        RegisterVisualTestAccelerator(VirtualKey.F8);
+        RegisterVisualTestAccelerator(VirtualKey.F9);
+        RegisterVisualTestAccelerator(VirtualKey.F10);
+#endif
         LoadSettingsControls();
         ApplyEdgeSide();
     }
@@ -76,11 +116,27 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        _edgeAnimator.Start();
-        _edgeAnimator.SetPlaying(ViewModel.IsPlaying);
-        _edgeAnimator.SetIntensity(ViewModel.Settings.Appearance.AnimationIntensity);
+#if NYKUR_EDGE_VISUAL_TEST
+        _visualTestPlaying = ViewModel.IsPlaying;
+        _windowController.SetVisualInspectionStatus("NyKur Edge QA · loaded");
+#endif
+        _edgeRenderer.Start();
+#if NYKUR_EDGE_VISUAL_TEST
+        _windowController.SetVisualInspectionStatus("NyKur Edge QA · renderer");
+#endif
+        _edgeRenderer.SetPlaying(ViewModel.IsPlaying);
+        _edgeRenderer.SetIntensity(ViewModel.Settings.Appearance.AnimationIntensity);
+        _bubbleController.Start(ViewModel.IsPlaying);
+#if NYKUR_EDGE_VISUAL_TEST
+        _windowController.SetVisualInspectionStatus(
+            $"NyKur Edge QA · {_windowController.IsExpanded} · {ActualWidth:F0}x{ActualHeight:F0} · surface {EdgeSurface.ActualWidth:F0}x{EdgeSurface.ActualHeight:F0}");
+#endif
+        _bubbleController.SetUnread(ViewModel.HasNotification);
         ViewModel.RefreshNotificationAccess();
         _ = LoadStartupStateAsync();
+        _ = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().TryEnqueue(
+            Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+            _windowController.EnableLocalizedRegion);
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -103,11 +159,21 @@ public sealed partial class MainPage : Page, IDisposable
         ViewModel.NotificationArrived -= OnNotificationArrived;
         ViewModel.GlanceVisibilityChanged -= OnGlanceVisibilityChanged;
         _windowController.ExpansionProgressChanged -= OnExpansionProgressChanged;
+#if NYKUR_EDGE_VISUAL_TEST
+        foreach (var accelerator in _visualTestAccelerators)
+        {
+            accelerator.Invoked -= OnVisualTestAcceleratorInvoked;
+            KeyboardAccelerators.Remove(accelerator);
+        }
+
+        _visualTestAccelerators.Clear();
+#endif
         _collapseTimer.Stop();
         _collapseTimer.Tick -= OnCollapseTimerTick;
         _accentSaveTimer.Stop();
         _accentSaveTimer.Tick -= OnAccentSaveTimerTick;
-        _edgeAnimator.Dispose();
+        _edgeRenderer.Dispose();
+        _bubbleController.Dispose();
         _accentController.Dispose();
         ViewModel.Dispose();
     }
@@ -140,10 +206,27 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void OnExpansionProgressChanged(object? sender, double progress)
     {
+        LayoutGrid.Width = EdgeWindowLayout.CollapsedWidthDip +
+                           ((EdgeWindowLayout.ExpandedWidthDip - EdgeWindowLayout.CollapsedWidthDip) * progress);
+        if (progress > 0.001)
+        {
+            ExpandedSurface.Visibility = Visibility.Visible;
+            PanelContent.Visibility = Visibility.Visible;
+        }
+
         var contentProgress = Math.Clamp((progress - 0.08) / 0.72, 0, 1);
+        ExpandedSurface.Opacity = Math.Clamp((progress - 0.025) / 0.62, 0, 1);
         PanelContent.Opacity = contentProgress;
-        var direction = ViewModel.Settings.EdgeSide == EdgeSide.Right ? 1 : -1;
+        PanelContent.IsHitTestVisible = contentProgress >= 0.98;
+        var direction = EffectiveSide == EdgeSide.Right ? 1 : -1;
         PanelTransform.TranslateX = direction * (1 - contentProgress) * 12;
+
+        if (progress <= 0.001)
+        {
+            PanelContent.IsHitTestVisible = false;
+            PanelContent.Visibility = Visibility.Collapsed;
+            ExpandedSurface.Visibility = Visibility.Collapsed;
+        }
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -151,16 +234,17 @@ public sealed partial class MainPage : Page, IDisposable
         switch (e.PropertyName)
         {
             case nameof(EdgeViewModel.IsPlaying):
-                _edgeAnimator.SetPlaying(ViewModel.IsPlaying);
+                _edgeRenderer.SetPlaying(ViewModel.IsPlaying);
+                _bubbleController.SetPlaying(ViewModel.IsPlaying);
                 break;
             case nameof(EdgeViewModel.HasNotification):
-                UnreadDot.Opacity = ViewModel.HasNotification ? 0.76 : 0;
+                _bubbleController.SetUnread(ViewModel.HasNotification);
                 break;
             case nameof(EdgeViewModel.Settings):
                 LoadSettingsControls();
                 ApplyEdgeSide();
                 _windowController.ApplySettings();
-                _edgeAnimator.SetIntensity(ViewModel.Settings.Appearance.AnimationIntensity);
+                _edgeRenderer.SetIntensity(ViewModel.Settings.Appearance.AnimationIntensity);
                 break;
         }
     }
@@ -172,9 +256,9 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void OnNotificationArrived()
     {
-        _edgeAnimator.TriggerNotificationPulse();
-        UnreadDot.Opacity = 0.76;
-        AnimateNotificationPulse();
+        _edgeRenderer.TriggerNotificationPulse();
+        _bubbleController.SetUnread(true);
+        _bubbleController.TriggerNotification();
     }
 
     private void OnGlanceVisibilityChanged(bool visible)
@@ -195,59 +279,6 @@ public sealed partial class MainPage : Page, IDisposable
         }
 
         AnimateGlance(visible);
-    }
-
-    private void AnimateNotificationPulse()
-    {
-        var pulseVisual = ElementCompositionPreview.GetElementVisual(NotificationPulse);
-        pulseVisual.CenterPoint = new Vector3(
-            (float)(NotificationPulse.ActualWidth / 2),
-            (float)(NotificationPulse.ActualHeight / 2),
-            0);
-        var compositor = pulseVisual.Compositor;
-
-        var scale = compositor.CreateVector3KeyFrameAnimation();
-        scale.InsertKeyFrame(0, new Vector3(0.5f, 0.5f, 1));
-        scale.InsertKeyFrame(0.42f, new Vector3(4.6f, 4.6f, 1));
-        scale.InsertKeyFrame(1, Vector3.One);
-        scale.Duration = TimeSpan.FromMilliseconds(920);
-
-        var opacity = compositor.CreateScalarKeyFrameAnimation();
-        opacity.InsertKeyFrame(0, 0);
-        opacity.InsertKeyFrame(0.16f, 0.92f);
-        opacity.InsertKeyFrame(0.72f, 0.24f);
-        opacity.InsertKeyFrame(1, 0);
-        opacity.Duration = scale.Duration;
-
-        pulseVisual.StartAnimation("Scale", scale);
-        pulseVisual.StartAnimation("Opacity", opacity);
-        AnimateRippleTrace(RippleUp, originAtBottom: true);
-        AnimateRippleTrace(RippleDown, originAtBottom: false);
-    }
-
-    private static void AnimateRippleTrace(FrameworkElement element, bool originAtBottom)
-    {
-        var visual = ElementCompositionPreview.GetElementVisual(element);
-        visual.CenterPoint = new Vector3(
-            (float)(element.ActualWidth / 2),
-            originAtBottom ? (float)element.ActualHeight : 0,
-            0);
-        var compositor = visual.Compositor;
-
-        var scale = compositor.CreateVector3KeyFrameAnimation();
-        scale.InsertKeyFrame(0, new Vector3(1, 0.05f, 1));
-        scale.InsertKeyFrame(0.78f, new Vector3(1, 5.5f, 1));
-        scale.InsertKeyFrame(1, new Vector3(1, 6.2f, 1));
-        scale.Duration = TimeSpan.FromMilliseconds(830);
-
-        var opacity = compositor.CreateScalarKeyFrameAnimation();
-        opacity.InsertKeyFrame(0, 0);
-        opacity.InsertKeyFrame(0.12f, 0.46f);
-        opacity.InsertKeyFrame(1, 0);
-        opacity.Duration = scale.Duration;
-
-        visual.StartAnimation("Scale", scale);
-        visual.StartAnimation("Opacity", opacity);
     }
 
     private void AnimateGlance(bool visible)
@@ -367,7 +398,7 @@ public sealed partial class MainPage : Page, IDisposable
         }
 
         var intensity = Enum.Parse<AnimationIntensity>(selected);
-        _edgeAnimator.SetIntensity(intensity);
+        _edgeRenderer.SetIntensity(intensity);
         await UpdateSettingsAsync(settings => settings with
         {
             Appearance = settings.Appearance with { AnimationIntensity = intensity },
@@ -477,27 +508,106 @@ public sealed partial class MainPage : Page, IDisposable
         _loadingSettings = false;
     }
 
-    private void ApplyEdgeSide()
+    private void ApplyEdgeSide() => ApplyEdgeSide(EffectiveSide);
+
+    private void ApplyEdgeSide(EdgeSide side)
     {
         var settings = ViewModel.Settings;
-        var edgeWidth = new GridLength(settings.Appearance.EdgeThickness);
-        if (settings.EdgeSide == EdgeSide.Right)
+        EdgeAnchor.Width = settings.Appearance.EdgeThickness;
+        _edgeRenderer.SetSide(side);
+
+        if (side == EdgeSide.Right)
         {
-            PanelColumn.Width = new GridLength(1, GridUnitType.Star);
-            EdgeColumn.Width = edgeWidth;
-            Grid.SetColumn(PanelContent, 0);
-            Grid.SetColumn(EdgeRail, 1);
-            ShellSurface.CornerRadius = new CornerRadius(22, 0, 0, 22);
+            ExpandedSurface.CornerRadius = new CornerRadius(22, 0, 0, 22);
+            PanelContent.Margin = new Thickness(12, 18, 24, 18);
+            EdgeSurface.HorizontalAlignment = HorizontalAlignment.Right;
+            EdgeAnchor.HorizontalAlignment = HorizontalAlignment.Right;
+            EdgeAnchor.CornerRadius = new CornerRadius(7, 0, 0, 7);
+            EdgeBubbleRoot.HorizontalAlignment = HorizontalAlignment.Right;
+            EdgeBubbleRoot.Margin = new Thickness(0, 0, -2, 0);
+            IncomingNotificationPulse.HorizontalAlignment = HorizontalAlignment.Right;
+            IncomingNotificationPulse.Margin = new Thickness(0, 42, 15, 0);
         }
         else
         {
-            PanelColumn.Width = edgeWidth;
-            EdgeColumn.Width = new GridLength(1, GridUnitType.Star);
-            Grid.SetColumn(EdgeRail, 0);
-            Grid.SetColumn(PanelContent, 1);
-            ShellSurface.CornerRadius = new CornerRadius(0, 22, 22, 0);
+            ExpandedSurface.CornerRadius = new CornerRadius(0, 22, 22, 0);
+            PanelContent.Margin = new Thickness(24, 18, 12, 18);
+            EdgeSurface.HorizontalAlignment = HorizontalAlignment.Left;
+            EdgeAnchor.HorizontalAlignment = HorizontalAlignment.Left;
+            EdgeAnchor.CornerRadius = new CornerRadius(0, 7, 7, 0);
+            EdgeBubbleRoot.HorizontalAlignment = HorizontalAlignment.Left;
+            EdgeBubbleRoot.Margin = new Thickness(-2, 0, 0, 0);
+            IncomingNotificationPulse.HorizontalAlignment = HorizontalAlignment.Left;
+            IncomingNotificationPulse.Margin = new Thickness(15, 42, 0, 0);
         }
     }
+
+    private EdgeSide EffectiveSide
+    {
+        get
+        {
+#if NYKUR_EDGE_VISUAL_TEST
+            return _visualTestSide;
+#else
+            return ViewModel.Settings.EdgeSide;
+#endif
+        }
+    }
+
+#if NYKUR_EDGE_VISUAL_TEST
+    private void RegisterVisualTestAccelerator(VirtualKey key)
+    {
+        var accelerator = new KeyboardAccelerator { Key = key };
+        accelerator.Invoked += OnVisualTestAcceleratorInvoked;
+        _visualTestAccelerators.Add(accelerator);
+        KeyboardAccelerators.Add(accelerator);
+    }
+
+    private void OnVisualTestAcceleratorInvoked(
+        KeyboardAccelerator sender,
+        KeyboardAcceleratorInvokedEventArgs args)
+    {
+        switch (sender.Key)
+        {
+            case VirtualKey.F6:
+                _visualTestPlaying = !_visualTestPlaying;
+                _edgeRenderer.SetPlaying(_visualTestPlaying);
+                _bubbleController.SetPlaying(_visualTestPlaying);
+                _windowController.SetVisualInspectionStatus(
+                    $"NyKur Edge QA · {(_visualTestPlaying ? "playing" : "idle")}");
+                break;
+            case VirtualKey.F7:
+                _edgeRenderer.TriggerNotificationPulse();
+                _bubbleController.SetUnread(true);
+                _bubbleController.TriggerNotification(timingScale: 4);
+                _windowController.SetVisualInspectionStatus("NyKur Edge QA · notification");
+                break;
+            case VirtualKey.F8:
+                _visualTestAccentIndex = (_visualTestAccentIndex + 1) % VisualTestAccents.Length;
+                _accentController.TransitionTo(VisualTestAccents[_visualTestAccentIndex]);
+                _windowController.SetVisualInspectionStatus(
+                    $"NyKur Edge QA · accent {_visualTestAccentIndex + 1}");
+                break;
+            case VirtualKey.F9:
+                _visualTestExpanded = !_visualTestExpanded;
+                _windowController.SetExpanded(_visualTestExpanded);
+                _windowController.SetVisualInspectionStatus(
+                    $"NyKur Edge QA · {(_visualTestExpanded ? "expanded" : "collapsed")}");
+                break;
+            case VirtualKey.F10:
+                _visualTestSide = _visualTestSide == EdgeSide.Right ? EdgeSide.Left : EdgeSide.Right;
+                ApplyEdgeSide(_visualTestSide);
+                _windowController.SetVisualInspectionSide(_visualTestSide);
+                _windowController.SetVisualInspectionStatus(
+                    $"NyKur Edge QA · {_visualTestSide.ToString().ToLowerInvariant()}");
+                break;
+            default:
+                return;
+        }
+
+        args.Handled = true;
+    }
+#endif
 
     private async Task LoadStartupStateAsync()
     {

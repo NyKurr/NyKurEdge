@@ -6,21 +6,29 @@
 - Zero-warning Debug build on .NET 10.
 - Core tests for accent selection, event subscriptions, settings persistence and
   normalization, rapid hover state, media source names, notification filtering,
-  privacy previews, and glance-safe interaction state.
-- 14-pixel collapsed right-edge rail.
-- Full-width right and left Edge anchoring at 125% display scaling.
+  privacy previews, glance-safe interaction state, and localized window geometry.
+- Localized `82 x 320` DIP collapsed surface with a tapered paint/input region.
+- Mirrored right and left inward-flowing wave geometry at 125% display scaling.
+- Deterministic 100% and 125% layout/DPI coverage in core tests.
+- Layered fluid traces, glass orb, idle breathing, and restrained playing motion.
+- Notification pulse, expanded orb, icon layer, ripple, hold, and return sequence
+  through the bounded visual-test mode.
 - Live Spotify media metadata, artwork, timeline, and playback status through the
   Windows global media-session API.
 - Automatic artwork accent, manual color changes, and return to automatic mode.
 - Settings scrolling and persisted edge/accent changes.
 - Clock glance appearance and return to the previous surface.
 - Notification access state without triggering a permission prompt.
+- Settled runtime sampling after the redesign measured `17.2%` of one logical
+  core (`~2.2%` total CPU on the eight-thread validation machine) and `146.6 MB`
+  working set while the Windows media integration was active.
 
 ## Implemented but requiring broader field testing
 
 - Previous/play-pause/next/seek behavior across multiple media providers.
 - Notification parsing across Telegram, Discord, and browser notification shapes.
-- Notification arrival ripple/pulse with real incoming notifications.
+- Notification arrival parsing/icon quality with real Telegram, Discord, and
+  browser notifications. The presentation sequence itself is visually validated.
 - StartupTask transitions across all Windows user-controlled startup states.
 - DPI/resolution changes while the process remains active for many hours.
 

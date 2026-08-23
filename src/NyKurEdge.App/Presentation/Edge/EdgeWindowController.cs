@@ -11,7 +11,6 @@ namespace NyKurEdge.App.Presentation.Edge;
 
 public sealed class EdgeWindowController : IDisposable
 {
-    private const int ExpandedWidthDip = 388;
     private const int ExtendedStyleIndex = -20;
     private const long ExtendedStyleAppWindow = 0x00040000L;
     private const long ExtendedStyleNoActivate = 0x08000000L;
@@ -21,6 +20,7 @@ public sealed class EdgeWindowController : IDisposable
     private const uint SetWindowPositionNoActivate = 0x0010;
     private const uint SetWindowPositionFrameChanged = 0x0020;
     private const uint SetWindowPositionShowWindow = 0x0040;
+    private const int AlternateFillMode = 1;
 
     private static readonly IntPtr TopMostWindow = new(-1);
 
@@ -33,11 +33,20 @@ public sealed class EdgeWindowController : IDisposable
     private readonly DispatcherQueueTimer _displayPollTimer;
     private readonly Stopwatch _animationClock = new();
     private readonly bool _visualInspectionMode;
+#if NYKUR_EDGE_VISUAL_TEST
+    private EdgeSide? _visualInspectionSide;
+#endif
     private DisplayInfo _display;
     private double _animationFrom;
     private double _animationTo;
     private double _progress;
     private bool _isSettingsInteractive;
+    private bool _canApplyWindowRegion;
+    private bool _collapsedRegionApplied;
+    private int _regionWidth;
+    private int _regionHeight;
+    private EdgeSide _regionSide;
+    private int _regionThickness;
     private bool _disposed;
 
     public EdgeWindowController(
@@ -62,7 +71,7 @@ public sealed class EdgeWindowController : IDisposable
 
         ConfigurePresenter();
         ApplyNativeWindowStyles(noActivate: true);
-        UpdateBounds(GetCollapsedWidthDip());
+        UpdateBounds(0);
 
         var dispatcher = DispatcherQueue.GetForCurrentThread();
         _animationTimer = dispatcher.CreateTimer();
@@ -88,7 +97,6 @@ public sealed class EdgeWindowController : IDisposable
             ApplyNativeWindowStyles(noActivate: false);
             _appWindow.Show(activateWindow: true);
             _window.Activate();
-            SetExpanded(expanded: true, immediate: true);
             return;
         }
 
@@ -108,14 +116,31 @@ public sealed class EdgeWindowController : IDisposable
             SetWindowPositionShowWindow);
     }
 
+    public void EnableLocalizedRegion()
+    {
+        ThrowIfDisposed();
+        _canApplyWindowRegion = true;
+        UpdateBounds(_progress);
+    }
+
+#if NYKUR_EDGE_VISUAL_TEST
+    public void SetVisualInspectionStatus(string status)
+    {
+        ThrowIfDisposed();
+        _appWindow.Title = status;
+    }
+
+    public void SetVisualInspectionSide(EdgeSide side)
+    {
+        ThrowIfDisposed();
+        _visualInspectionSide = side;
+        UpdateBounds(_progress);
+    }
+#endif
+
     public void SetExpanded(bool expanded, bool immediate = false)
     {
         ThrowIfDisposed();
-        if (_visualInspectionMode && !expanded)
-        {
-            return;
-        }
-
         var target = expanded ? 1d : 0d;
         if (Math.Abs(target - _progress) < 0.001)
         {
@@ -139,7 +164,7 @@ public sealed class EdgeWindowController : IDisposable
     public void ApplySettings()
     {
         ThrowIfDisposed();
-        UpdateBounds(GetWidthForProgress(_progress));
+        UpdateBounds(_progress);
     }
 
     public void SetSettingsInteraction(bool enabled)
@@ -254,28 +279,25 @@ public sealed class EdgeWindowController : IDisposable
     private void SetProgress(double progress)
     {
         _progress = Math.Clamp(progress, 0, 1);
-        UpdateBounds(GetWidthForProgress(_progress));
+        UpdateBounds(_progress);
         ExpansionProgressChanged?.Invoke(this, _progress);
     }
 
-    private double GetWidthForProgress(double progress) =>
-        GetCollapsedWidthDip() + ((ExpandedWidthDip - GetCollapsedWidthDip()) * progress);
-
-    private int GetCollapsedWidthDip() => _settings.Current.Appearance.EdgeThickness;
-
-    private void UpdateBounds(double widthDip)
+    private void UpdateBounds(double expansionProgress)
     {
         var latestDisplay = _displayService.GetPrimaryDisplay();
         _display = latestDisplay;
 
-        var scale = Math.Max(_display.Dpi / 96d, 1);
-        var width = Math.Max(1, (int)Math.Round(widthDip * scale));
-        var workArea = _display.WorkArea;
-        var x = _settings.Current.EdgeSide == EdgeSide.Right
-            ? workArea.X + workArea.Width - width
-            : workArea.X;
-
-        _appWindow.MoveAndResize(new RectInt32(x, workArea.Y, width, workArea.Height));
+        var bounds = EdgeWindowLayout.Calculate(
+            _display.WorkArea,
+            _display.Dpi,
+            EffectiveSide,
+            expansionProgress);
+        _appWindow.MoveAndResize(new RectInt32(bounds.X, bounds.Y, bounds.Width, bounds.Height));
+        if (_canApplyWindowRegion)
+        {
+            ApplyWindowRegion(bounds.Width, bounds.Height, expansionProgress);
+        }
     }
 
     private void OnDisplayPollTick(DispatcherQueueTimer sender, object args)
@@ -284,13 +306,90 @@ public sealed class EdgeWindowController : IDisposable
         if (current.WorkArea != _display.WorkArea || current.Dpi != _display.Dpi)
         {
             _display = current;
-            UpdateBounds(GetWidthForProgress(_progress));
+            UpdateBounds(_progress);
         }
+    }
+
+    private void ApplyWindowRegion(int width, int height, double expansionProgress)
+    {
+        if (expansionProgress > 0.001)
+        {
+            if (_collapsedRegionApplied)
+            {
+                _ = SetWindowRegion(_windowHandle, IntPtr.Zero, redraw: true);
+                _collapsedRegionApplied = false;
+            }
+
+            return;
+        }
+
+        var side = EffectiveSide;
+        var thickness = _settings.Current.Appearance.EdgeThickness;
+        if (_collapsedRegionApplied &&
+            width == _regionWidth &&
+            height == _regionHeight &&
+            side == _regionSide &&
+            thickness == _regionThickness)
+        {
+            return;
+        }
+
+        var scale = _display.Dpi > 0 ? _display.Dpi / 96d : 1d;
+        const int profilePointCount = 33;
+        var points = new NativePoint[profilePointCount + 2];
+        var outerX = side == EdgeSide.Right ? width - 1 : 0;
+        points[0] = new NativePoint(outerX, 0);
+        for (var index = 0; index < profilePointCount; index++)
+        {
+            var normalizedY = index / (double)(profilePointCount - 1);
+            var upperLobe = Math.Exp(-Math.Pow((normalizedY - 0.34) * 6.2, 2));
+            var lowerLobe = Math.Exp(-Math.Pow((normalizedY - 0.66) * 6.2, 2));
+            var bubbleEnvelope = Math.Exp(-Math.Pow((normalizedY - 0.5) * 13.5, 2));
+            var reachDip =
+                (thickness * 0.72) +
+                (Math.Max(upperLobe, lowerLobe) * 58) +
+                (bubbleEnvelope * 30);
+            var reach = Math.Clamp((int)Math.Round(reachDip * scale), 2, width);
+            var x = side == EdgeSide.Right ? width - reach : reach - 1;
+            var y = Math.Clamp((int)Math.Round(normalizedY * (height - 1)), 0, height - 1);
+            points[index + 1] = new NativePoint(x, y);
+        }
+
+        points[^1] = new NativePoint(outerX, height - 1);
+        var region = CreatePolygonRegion(points, points.Length, AlternateFillMode);
+        if (region == IntPtr.Zero)
+        {
+            return;
+        }
+
+        if (SetWindowRegion(_windowHandle, region, redraw: true) == 0)
+        {
+            _ = DeleteObject(region);
+            return;
+        }
+
+        _collapsedRegionApplied = true;
+        _regionWidth = width;
+        _regionHeight = height;
+        _regionSide = side;
+        _regionThickness = thickness;
     }
 
     private void ThrowIfDisposed()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+    }
+
+    private EdgeSide EffectiveSide
+    {
+        get
+        {
+#if NYKUR_EDGE_VISUAL_TEST
+            return _visualInspectionSide ?? _settings.Current.EdgeSide;
+#else
+            return _settings.Current.EdgeSide;
+#endif
+        }
     }
 
     private static IntPtr GetWindowLongPointer(IntPtr windowHandle, int index) =>
@@ -325,4 +424,27 @@ public sealed class EdgeWindowController : IDisposable
         int width,
         int height,
         uint flags);
+
+    [DllImport("gdi32.dll", EntryPoint = "CreatePolygonRgn")]
+    private static extern IntPtr CreatePolygonRegion(
+        [In] NativePoint[] points,
+        int pointCount,
+        int fillMode);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowRgn")]
+    private static extern int SetWindowRegion(
+        IntPtr windowHandle,
+        IntPtr region,
+        [MarshalAs(UnmanagedType.Bool)] bool redraw);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DeleteObject(IntPtr objectHandle);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private readonly struct NativePoint(int x, int y)
+    {
+        public readonly int X = x;
+        public readonly int Y = y;
+    }
 }
