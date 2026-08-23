@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "NyKurEdge.App (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "NyKurEdge.App (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

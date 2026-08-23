@@ -1,0 +1,40 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Aa]rtifacts/
+[Aa]ppPackages/
+[Bb]undleArtifacts/
+[Gg]enerated Files/
+[Tt]estResults/
+
+# IDE and user state
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Local SDK/NuGet caches used by automated builds
+.dotnet-home/
+.nuget/
+packages/
+
+# Packaging and signing output
+*.appx
+*.appxbundle
+*.msix
+*.msixbundle
+*.cer
+*.pfx
+*.publish.xml
+
+# Diagnostics
+*.log
+*.binlog
+crashdumps/
+
+# Operating-system files
+Thumbs.db
+Desktop.ini
+.DS_Store

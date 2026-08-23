@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/NyKurEdge.App/NyKurEdge.App.csproj" />
+    <Project Path="src/NyKurEdge.Core/NyKurEdge.Core.csproj" />
+    <Project Path="src/NyKurEdge.Infrastructure/NyKurEdge.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/NyKurEdge.Core.Tests/NyKurEdge.Core.Tests.csproj" />
+  </Folder>
+</Solution>
