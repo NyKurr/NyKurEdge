@@ -15,6 +15,7 @@ public sealed class EdgeBubbleController : IDisposable
     private readonly FrameworkElement _haloPrimary;
     private readonly FrameworkElement _haloSecondary;
     private readonly FrameworkElement _unreadRing;
+    private readonly FrameworkElement _launcherRing;
     private bool _disposed;
 
     public EdgeBubbleController(
@@ -25,7 +26,8 @@ public sealed class EdgeBubbleController : IDisposable
         FrameworkElement incomingPulse,
         FrameworkElement haloPrimary,
         FrameworkElement haloSecondary,
-        FrameworkElement unreadRing)
+        FrameworkElement unreadRing,
+        FrameworkElement launcherRing)
     {
         _surface = surface;
         _breathHost = breathHost;
@@ -35,6 +37,7 @@ public sealed class EdgeBubbleController : IDisposable
         _haloPrimary = haloPrimary;
         _haloSecondary = haloSecondary;
         _unreadRing = unreadRing;
+        _launcherRing = launcherRing;
     }
 
     public void Start(bool isPlaying) => SetPlaying(isPlaying);
@@ -64,6 +67,26 @@ public sealed class EdgeBubbleController : IDisposable
         animation.InsertKeyFrame(1, unread ? 0.20f : 0f);
         animation.Duration = TimeSpan.FromMilliseconds(unread ? 360 : 520);
         visual.StartAnimation("Opacity", animation);
+    }
+
+    public void SetPinned(bool pinned)
+    {
+        ThrowIfDisposed();
+        var visual = PrepareVisual(_launcherRing);
+        var compositor = visual.Compositor;
+
+        var opacity = compositor.CreateScalarKeyFrameAnimation();
+        opacity.InsertKeyFrame(0, visual.Opacity);
+        opacity.InsertKeyFrame(1, pinned ? 0.42f : 0f, EaseOut(compositor));
+        opacity.Duration = TimeSpan.FromMilliseconds(pinned ? 240 : 360);
+
+        var scale = compositor.CreateVector3KeyFrameAnimation();
+        scale.InsertKeyFrame(0, visual.Scale);
+        scale.InsertKeyFrame(1, pinned ? new Vector3(1.08f, 1.08f, 1) : Vector3.One, EaseOut(compositor));
+        scale.Duration = opacity.Duration;
+
+        visual.StartAnimation("Opacity", opacity);
+        visual.StartAnimation("Scale", scale);
     }
 
     public void TriggerNotification(double timingScale = 1)
@@ -104,6 +127,7 @@ public sealed class EdgeBubbleController : IDisposable
                      _haloPrimary,
                      _haloSecondary,
                      _unreadRing,
+                     _launcherRing,
                  })
         {
             var visual = ElementCompositionPreview.GetElementVisual(element);

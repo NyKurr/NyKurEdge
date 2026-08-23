@@ -62,16 +62,20 @@ sources during shutdown.
 - Settings interaction temporarily permits activation so keyboard/color controls
   remain usable.
 - Bounds are derived from the selected display's work area and effective DPI.
-- `EdgeWindowLayout` keeps the idle window at `82 x 320` DIPs and the current
-  contextual surface at `388 x 560` DIPs, centered with an offset seam for later
-  upper/lower/custom placement.
-- The collapsed HWND receives a tapered polygon region after XAML has loaded, so
-  painting and mouse input follow the localized fluid envelope instead of a
-  rectangle or the full monitor height.
+- `EdgeWindowLayout` keeps the HWND at the primary work area's full height while
+  interpolating its inward reach from `82` to `408` DIPs. Taskbar-adjusted bounds
+  and effective DPI remain the source of physical placement.
+- The HWND receives a composite native region after XAML has loaded: three thin
+  full-height wave ribbons, a minimal edge seam, the visible half-orb, and—only
+  while opening—a centered capsule bloom. Painting and mouse input therefore
+  follow the visual phenomenon rather than the window rectangle.
+- Desktop acrylic is detached while collapsed, leaving no idle panel fill, and is
+  reattached only for the organic expanded shell.
 - A four-second low-frequency display poll catches resolution, work-area, and DPI
   changes without an idle render loop.
 
-The narrow physical anchor remains configurable and normalized to `10-24` DIPs.
+The physical anchor setting is reduced to a sub-two-DIP seam in presentation, so
+legacy preferences cannot turn the idle identity back into a thick bar.
 Expansion is a short timer-driven transition only while movement is in progress;
 no high-rate layout timer runs while idle.
 
@@ -80,10 +84,20 @@ no high-rate layout timer runs while idle.
 `EdgeWaveRenderer` owns four reusable XAML `PathGeometry` layers: a broad bloom,
 an outer accent trace, a neutral glass trace, and a brighter core trace. Each path
 allocates its Bézier segments once and mutates only point structs while running;
-the former per-tick `Polyline.Points.Clear()` churn is gone. Idle updates run at
-roughly 8 Hz and playing updates at 30 Hz. The renderer computes one point set for
-the bloom/outer pair but keeps an independent mutable geometry per `Path`; WinUI
-dependency objects are never shared between visual parents.
+the former per-tick `Polyline.Points.Clear()` churn is gone. Thirteen adaptive
+knots span the work area; center envelopes carry most visual energy while the top
+and bottom settle toward the physical seam. Idle geometry updates run at 5 Hz,
+procedural playing motion at roughly 12 Hz, and notification ripples temporarily
+at 20 Hz. Continuous orb breathing stays on the compositor. The short window
+expansion remains a separate 60 Hz transition and adds a broad center displacement
+so the waves visually unfold into the glass shell. The renderer computes one point
+set for the bloom/outer pair but keeps an independent mutable geometry per `Path`;
+WinUI dependency objects are never shared between visual parents.
+
+`EdgeInteractionStateMachine` distinguishes transient pointer preview from an
+intentional pinned-open launcher state. The visible half-orb is the click target;
+pinning temporarily permits window activation, while passive hover retains the
+normal no-activation behavior.
 
 `IEdgeMotionSource` supplies normalized energy/band values. The current
 `ProceduralEdgeMotionSource` is deterministic and explicitly non-audio-reactive;

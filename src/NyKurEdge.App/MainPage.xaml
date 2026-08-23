@@ -19,18 +19,32 @@
             HorizontalAlignment="Left">
             <Border
                 x:Name="ExpandedSurface"
-                Background="{StaticResource NyKurSurfaceBrush}"
-                CornerRadius="22,0,0,22"
+                Height="560"
+                VerticalAlignment="Center"
+                Background="#9414171C"
+                BorderBrush="#26FFFFFF"
+                BorderThickness="1"
+                CornerRadius="64,0,0,64"
                 IsHitTestVisible="False"
                 Opacity="0"
-                Visibility="Collapsed" />
+                RenderTransformOrigin="1,0.5"
+                Visibility="Collapsed">
+                <Border.RenderTransform>
+                    <CompositeTransform
+                        x:Name="ExpandedShellTransform"
+                        ScaleX="0.08"
+                        ScaleY="0.16" />
+                </Border.RenderTransform>
+            </Border>
 
             <Grid
                 x:Name="PanelContent"
+                Height="470"
                 Margin="12,18,24,18"
                 IsHitTestVisible="False"
                 Opacity="0"
                 RenderTransformOrigin="0.5,0.5"
+                VerticalAlignment="Center"
                 Visibility="Collapsed">
                     <Grid.RenderTransform>
                         <CompositeTransform x:Name="PanelTransform" TranslateX="12" />
@@ -512,59 +526,57 @@
                 x:Name="EdgeSurface"
                 Width="82"
                 HorizontalAlignment="Right"
-                Background="#01000000">
+                Background="Transparent">
                 <Border
                     x:Name="EdgeAnchor"
-                    Width="14"
-                    Height="272"
+                    Width="1"
+                    Margin="0,2"
                     HorizontalAlignment="Right"
-                    VerticalAlignment="Center"
-                    Background="{StaticResource NyKurAccentFaintBrush}"
-                    CornerRadius="7,0,0,7"
-                    Opacity="0.42" />
+                    Background="{StaticResource NyKurGlassTraceBrush}"
+                    Opacity="0.24" />
 
                 <Path
                     x:Name="WaveBloom"
                     IsHitTestVisible="False"
-                    Opacity="0.56"
+                    Opacity="0.30"
                     Stroke="{StaticResource NyKurAccentFaintBrush}"
                     StrokeEndLineCap="Round"
                     StrokeLineJoin="Round"
                     StrokeStartLineCap="Round"
-                    StrokeThickness="13" />
+                    StrokeThickness="8" />
                 <Path
                     x:Name="WaveOuterTrace"
                     IsHitTestVisible="False"
-                    Opacity="0.48"
+                    Opacity="0.46"
                     Stroke="{StaticResource NyKurAccentSoftBrush}"
                     StrokeEndLineCap="Round"
                     StrokeLineJoin="Round"
                     StrokeStartLineCap="Round"
-                    StrokeThickness="1.05" />
+                    StrokeThickness="0.9" />
                 <Path
                     x:Name="WaveSecondaryTrace"
                     IsHitTestVisible="False"
-                    Opacity="0.38"
+                    Opacity="0.28"
                     Stroke="{StaticResource NyKurGlassTraceBrush}"
                     StrokeEndLineCap="Round"
                     StrokeLineJoin="Round"
                     StrokeStartLineCap="Round"
-                    StrokeThickness="0.85" />
+                    StrokeThickness="0.72" />
                 <Path
                     x:Name="WaveCoreTrace"
                     IsHitTestVisible="False"
-                    Opacity="0.82"
+                    Opacity="0.72"
                     Stroke="{StaticResource NyKurAccentBrush}"
                     StrokeEndLineCap="Round"
                     StrokeLineJoin="Round"
                     StrokeStartLineCap="Round"
-                    StrokeThickness="1.35" />
+                    StrokeThickness="1.05" />
 
                 <Ellipse
                     x:Name="IncomingNotificationPulse"
                     Width="4"
                     Height="4"
-                    Margin="0,42,15,0"
+                    Margin="0,64,3,0"
                     HorizontalAlignment="Right"
                     VerticalAlignment="Top"
                     Fill="{StaticResource NyKurAccentBrush}"
@@ -573,92 +585,101 @@
 
                 <Grid
                     x:Name="EdgeBubbleRoot"
-                    Width="48"
-                    Height="48"
-                    Margin="0,0,-2,0"
+                    Width="56"
+                    Height="56"
+                    Margin="0,0,-28,0"
                     HorizontalAlignment="Right"
                     VerticalAlignment="Center"
                     IsHitTestVisible="False">
                     <Ellipse
                         x:Name="NotificationHaloPrimary"
-                        Width="26"
-                        Height="26"
+                        Width="24"
+                        Height="24"
                         Fill="{StaticResource NyKurAccentFaintBrush}"
                         Opacity="0"
                         Stroke="{StaticResource NyKurAccentSoftBrush}"
                         StrokeThickness="0.8" />
                     <Ellipse
                         x:Name="NotificationHaloSecondary"
-                        Width="26"
-                        Height="26"
+                        Width="24"
+                        Height="24"
                         Fill="Transparent"
                         Opacity="0"
                         Stroke="{StaticResource NyKurGlassTraceBrush}"
                         StrokeThickness="0.7" />
                     <Ellipse
                         x:Name="UnreadRing"
-                        Width="31"
-                        Height="31"
+                        Width="29"
+                        Height="29"
                         Opacity="0"
                         Stroke="{StaticResource NyKurAccentBrush}"
                         StrokeThickness="0.65" />
+                    <Ellipse
+                        x:Name="LauncherRing"
+                        Width="27"
+                        Height="27"
+                        Opacity="0"
+                        Stroke="{StaticResource NyKurGlassTraceBrush}"
+                        StrokeThickness="0.7" />
 
                     <Grid
                         x:Name="BubbleBreathHost"
-                        Width="26"
-                        Height="26">
+                        Width="24"
+                        Height="24">
                         <Grid
                             x:Name="BubbleBody"
-                            Width="26"
-                            Height="26">
+                            Width="24"
+                            Height="24">
                             <Ellipse
-                                Width="38"
-                                Height="38"
+                                Width="34"
+                                Height="34"
                                 Fill="{StaticResource NyKurAccentFaintBrush}"
-                                Opacity="0.62" />
+                                Opacity="0.52" />
                             <Ellipse
-                                Width="30"
-                                Height="30"
+                                Width="28"
+                                Height="28"
                                 Fill="#28111720"
                                 Stroke="{StaticResource NyKurAccentSoftBrush}"
-                                StrokeThickness="0.6" />
+                                StrokeThickness="0.55" />
                             <Ellipse
-                                Width="26"
-                                Height="26"
-                                Fill="#DC171D25"
-                                Stroke="#78FFFFFF"
-                                StrokeThickness="0.8" />
+                                Width="24"
+                                Height="24"
+                                Fill="#D2181D24"
+                                Stroke="#68FFFFFF"
+                                StrokeThickness="0.72" />
                             <Ellipse
-                                Width="23"
-                                Height="23"
+                                Width="21"
+                                Height="21"
                                 Fill="{StaticResource NyKurAccentSoftBrush}"
-                                Opacity="0.48" />
+                                Opacity="0.38" />
                             <Ellipse
-                                Width="16"
-                                Height="10"
-                                Margin="3,3,0,0"
+                                x:Name="BubbleSheen"
+                                Width="14"
+                                Height="8"
+                                Margin="2,3,0,0"
                                 HorizontalAlignment="Left"
                                 VerticalAlignment="Top"
                                 Fill="#54FFFFFF"
-                                Opacity="0.76" />
+                                Opacity="0.68" />
                             <Ellipse
-                                Width="4"
-                                Height="4"
-                                Margin="6,5,0,0"
+                                x:Name="BubbleSpark"
+                                Width="3"
+                                Height="3"
+                                Margin="5,5,0,0"
                                 HorizontalAlignment="Left"
                                 VerticalAlignment="Top"
-                                Fill="#D8FFFFFF" />
+                                Fill="#C8FFFFFF" />
 
                             <Grid
                                 x:Name="NotificationIconHost"
-                                Width="15"
-                                Height="15"
+                                Width="14"
+                                Height="14"
                                 Opacity="0">
                                 <FontIcon
-                                    FontSize="9"
+                                    FontSize="8"
                                     Foreground="#E8FFFFFF"
                                     Glyph="&#xEA8F;" />
-                                <Border CornerRadius="7.5">
+                                <Border CornerRadius="7">
                                     <Image
                                         Source="{x:Bind ViewModel.NotificationIcon, Mode=OneWay}"
                                         Stretch="UniformToFill" />
@@ -667,6 +688,26 @@
                         </Grid>
                     </Grid>
                 </Grid>
+
+                <Button
+                    x:Name="EdgeLauncherButton"
+                    Width="56"
+                    Height="76"
+                    Margin="0,0,-28,0"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Center"
+                    AutomationProperties.Name="Open or pin NyKur Edge"
+                    Background="#01000000"
+                    BorderThickness="0"
+                    Click="OnEdgeLauncherClicked"
+                    IsTabStop="False"
+                    Padding="0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Grid Background="{TemplateBinding Background}" />
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
             </Grid>
         </Grid>
     </Grid>

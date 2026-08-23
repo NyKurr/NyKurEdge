@@ -11,7 +11,7 @@ namespace NyKurEdge.App.Presentation.Edge;
 
 public sealed class EdgeWaveRenderer : IDisposable
 {
-    private const int KnotCount = 9;
+    private const int KnotCount = 13;
     private readonly FrameworkElement _host;
     private readonly WaveLayer[] _layers;
     private readonly IEdgeMotionSource _motionSource;
@@ -19,6 +19,7 @@ public sealed class EdgeWaveRenderer : IDisposable
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private double _notificationStartedAt = double.NegativeInfinity;
     private double _intensity = 1;
+    private double _expansionProgress;
     private bool _isPlaying;
     private EdgeSide _side = EdgeSide.Right;
 
@@ -34,14 +35,35 @@ public sealed class EdgeWaveRenderer : IDisposable
         _motionSource = motionSource ?? new ProceduralEdgeMotionSource();
         _layers =
         [
-            new WaveLayer([bloom, outerTrace], reach: 39, amplitude: 1.08, phase: 1.05),
-            new WaveLayer(secondaryTrace, reach: 28, amplitude: 0.84, phase: 2.55),
-            new WaveLayer(coreTrace, reach: 13, amplitude: 0.58, phase: 3.35),
+            new WaveLayer(
+                [bloom, outerTrace],
+                baseReach: 3.0,
+                centerReach: 39,
+                orbReach: 8,
+                expansionReach: 48,
+                amplitude: 1.0,
+                phase: 1.05),
+            new WaveLayer(
+                secondaryTrace,
+                baseReach: 2.2,
+                centerReach: 27,
+                orbReach: 6,
+                expansionReach: 34,
+                amplitude: 0.78,
+                phase: 2.55),
+            new WaveLayer(
+                coreTrace,
+                baseReach: 1.6,
+                centerReach: 13,
+                orbReach: 4,
+                expansionReach: 18,
+                amplitude: 0.54,
+                phase: 3.35),
         ];
 
         _timer = DispatcherQueue.GetForCurrentThread().CreateTimer();
         _timer.IsRepeating = true;
-        _timer.Interval = TimeSpan.FromMilliseconds(120);
+        _timer.Interval = TimeSpan.FromMilliseconds(200);
         _timer.Tick += OnTick;
     }
 
@@ -56,7 +78,7 @@ public sealed class EdgeWaveRenderer : IDisposable
     public void SetPlaying(bool isPlaying)
     {
         _isPlaying = isPlaying;
-        _timer.Interval = TimeSpan.FromMilliseconds(isPlaying ? 33 : 120);
+        UpdateTimerInterval();
     }
 
     public void SetIntensity(AnimationIntensity intensity)
@@ -75,9 +97,16 @@ public sealed class EdgeWaveRenderer : IDisposable
         Render();
     }
 
+    public void SetExpansionProgress(double progress)
+    {
+        _expansionProgress = Math.Clamp(progress, 0, 1);
+        Render();
+    }
+
     public void TriggerNotificationPulse()
     {
         _notificationStartedAt = _clock.Elapsed.TotalSeconds;
+        UpdateTimerInterval();
         if (!_timer.IsRunning)
         {
             _timer.Start();
@@ -91,7 +120,25 @@ public sealed class EdgeWaveRenderer : IDisposable
         _clock.Stop();
     }
 
-    private void OnTick(DispatcherQueueTimer sender, object args) => Render();
+    private void OnTick(DispatcherQueueTimer sender, object args)
+    {
+        Render();
+        if (!_isPlaying && _clock.Elapsed.TotalSeconds - _notificationStartedAt > 1.85)
+        {
+            UpdateTimerInterval();
+        }
+    }
+
+    private void UpdateTimerInterval()
+    {
+        var notificationActive = _clock.Elapsed.TotalSeconds - _notificationStartedAt <= 1.85;
+        _timer.Interval = TimeSpan.FromMilliseconds(
+            notificationActive
+                ? 50
+                : _isPlaying
+                    ? 83
+                    : 200);
+    }
 
     private void Render()
     {
@@ -118,6 +165,7 @@ public sealed class EdgeWaveRenderer : IDisposable
                 seconds,
                 signal,
                 _intensity,
+                _expansionProgress,
                 notificationAge);
         }
     }
@@ -127,17 +175,26 @@ public sealed class EdgeWaveRenderer : IDisposable
         private readonly PathFigure[] _figures;
         private readonly BezierSegment[][] _segments;
         private readonly Point[] _points = new Point[KnotCount];
-        private readonly double _reach;
+        private readonly double _baseReach;
+        private readonly double _centerReach;
+        private readonly double _orbReach;
+        private readonly double _expansionReach;
         private readonly double _amplitude;
         private readonly double _phase;
 
         public WaveLayer(
             IReadOnlyList<XamlPath> paths,
-            double reach,
+            double baseReach,
+            double centerReach,
+            double orbReach,
+            double expansionReach,
             double amplitude,
             double phase)
         {
-            _reach = reach;
+            _baseReach = baseReach;
+            _centerReach = centerReach;
+            _orbReach = orbReach;
+            _expansionReach = expansionReach;
             _amplitude = amplitude;
             _phase = phase;
             _figures = new PathFigure[paths.Count];
@@ -162,8 +219,22 @@ public sealed class EdgeWaveRenderer : IDisposable
             }
         }
 
-        public WaveLayer(XamlPath path, double reach, double amplitude, double phase)
-            : this([path], reach, amplitude, phase)
+        public WaveLayer(
+            XamlPath path,
+            double baseReach,
+            double centerReach,
+            double orbReach,
+            double expansionReach,
+            double amplitude,
+            double phase)
+            : this(
+                [path],
+                baseReach,
+                centerReach,
+                orbReach,
+                expansionReach,
+                amplitude,
+                phase)
         {
         }
 
@@ -175,28 +246,37 @@ public sealed class EdgeWaveRenderer : IDisposable
             double seconds,
             EdgeMotionSignal signal,
             double intensity,
+            double expansionProgress,
             double notificationAge)
         {
             for (var index = 0; index < KnotCount; index++)
             {
                 var normalizedY = index / (double)(KnotCount - 1);
-                var verticalInset = Math.Min(14, height * 0.045);
-                var verticalMask = Math.Pow(Math.Sin(Math.PI * normalizedY), 0.72);
-                var upperLobe = Gaussian(normalizedY, 0.32, 7.1);
-                var lowerLobe = Gaussian(normalizedY, 0.68, 7.1);
-                var lobes = Math.Min(1.2, upperLobe + lowerLobe);
-                var bubbleWaist = Gaussian(normalizedY, 0.5, 12.5);
+                const double verticalInset = 0.5;
+                var centerEnvelope = Gaussian(normalizedY, 0.5, 3.15);
+                var bubbleWaist = Gaussian(normalizedY, 0.5, 10.8);
+                var ambientEnvelope = 0.16 + (centerEnvelope * 0.84);
 
                 var breathing =
-                    Math.Sin((normalizedY * 10.8) + (seconds * (0.62 + signal.MidBand)) + _phase) +
-                    (Math.Sin((normalizedY * 22.5) - (seconds * (0.34 + signal.LowBand)) + (_phase * 0.7)) * 0.34) +
-                    (Math.Sin((normalizedY * 5.2) + (seconds * 0.22) - _phase) * 0.18);
+                    Math.Sin((normalizedY * 18.2) + (seconds * (0.48 + signal.MidBand)) + _phase) +
+                    (Math.Sin((normalizedY * 31.5) - (seconds * (0.28 + signal.LowBand)) + (_phase * 0.7)) * 0.28) +
+                    (Math.Sin((normalizedY * 7.6) + (seconds * 0.18) - _phase) * 0.16);
 
-                var baseReach = 3.5 + (_reach * (0.22 + (lobes * 0.78))) + (bubbleWaist * 7.5);
-                var motionAmplitude = (1.1 + (signal.Energy * 6.2)) * _amplitude * intensity;
+                var expandedEnvelope = Gaussian(normalizedY, 0.5, 2.25);
+                var baseReach = _baseReach +
+                                (_centerReach * centerEnvelope) +
+                                (_orbReach * bubbleWaist) +
+                                (_expansionReach * expansionProgress * expandedEnvelope);
+                var motionAmplitude =
+                    (0.8 + (signal.Energy * 5.2)) *
+                    _amplitude *
+                    intensity *
+                    ambientEnvelope;
                 var notificationDisplacement = GetNotificationDisplacement(normalizedY, notificationAge);
-                var displacement = verticalMask *
-                    (baseReach + (breathing * motionAmplitude) + (notificationDisplacement * _amplitude));
+                var displacement =
+                    baseReach +
+                    (breathing * motionAmplitude) +
+                    (notificationDisplacement * _amplitude);
                 displacement = Math.Clamp(displacement, 0, width - 3);
 
                 _points[index] = new Point(

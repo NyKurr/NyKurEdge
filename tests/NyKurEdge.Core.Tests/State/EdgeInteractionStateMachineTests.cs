@@ -33,4 +33,37 @@ public sealed class EdgeInteractionStateMachineTests
         machine.EndGlance(now.AddSeconds(2));
         Assert.AreEqual(EdgeVisibility.Collapsed, machine.Advance(now.AddSeconds(3)).Visibility);
     }
+
+    [TestMethod]
+    public void PinnedEdgeRemainsExpandedAfterPointerLeaves()
+    {
+        var machine = new EdgeInteractionStateMachine(TimeSpan.FromMilliseconds(300));
+        var now = DateTimeOffset.UtcNow;
+
+        machine.PointerEntered();
+        machine.SetPinned(true, now);
+        machine.PointerExited(now);
+        var state = machine.Advance(now.AddMinutes(1));
+
+        Assert.AreEqual(EdgeVisibility.Expanded, state.Visibility);
+        Assert.IsTrue(state.IsPinnedOpen);
+        Assert.IsNull(state.CollapseDueAt);
+    }
+
+    [TestMethod]
+    public void UnpinningOutsideSchedulesAGracefulCollapse()
+    {
+        var machine = new EdgeInteractionStateMachine(TimeSpan.FromMilliseconds(300));
+        var now = DateTimeOffset.UtcNow;
+
+        machine.SetPinned(true, now);
+        machine.PointerExited(now);
+        var unpinned = machine.SetPinned(false, now.AddSeconds(1));
+
+        Assert.IsFalse(unpinned.IsPinnedOpen);
+        Assert.IsNotNull(unpinned.CollapseDueAt);
+        Assert.AreEqual(
+            EdgeVisibility.Collapsed,
+            machine.Advance(now.AddSeconds(2)).Visibility);
+    }
 }

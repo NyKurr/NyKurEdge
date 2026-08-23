@@ -7,36 +7,27 @@ public readonly record struct EdgeWindowBounds(int X, int Y, int Width, int Heig
 public static class EdgeWindowLayout
 {
     public const double CollapsedWidthDip = 82;
-    public const double CollapsedHeightDip = 320;
-    public const double ExpandedWidthDip = 388;
-    public const double ExpandedHeightDip = 560;
+    public const double ExpandedWidthDip = 408;
+    public const double ExpandedShellHeightDip = 560;
 
     public static EdgeWindowBounds Calculate(
         DisplayRect workArea,
         uint dpi,
         EdgeSide side,
-        double expansionProgress,
-        double centerOffsetDip = 0)
+        double expansionProgress)
     {
         var scale = dpi > 0 ? dpi / 96d : 1d;
         var progress = Math.Clamp(expansionProgress, 0, 1);
 
         var collapsedWidth = ToPixels(CollapsedWidthDip, scale, workArea.Width);
         var expandedWidth = ToPixels(ExpandedWidthDip, scale, workArea.Width);
-        var collapsedHeight = ToPixels(CollapsedHeightDip, scale, workArea.Height);
-        var expandedHeight = ToPixels(ExpandedHeightDip, scale, workArea.Height);
 
         var width = Interpolate(collapsedWidth, expandedWidth, progress);
-        var height = Interpolate(collapsedHeight, expandedHeight, progress);
         var x = side == EdgeSide.Right
             ? workArea.X + workArea.Width - width
             : workArea.X;
 
-        var centerOffset = (int)Math.Round(centerOffsetDip * scale);
-        var centeredY = workArea.Y + ((workArea.Height - height) / 2) + centerOffset;
-        var y = Math.Clamp(centeredY, workArea.Y, workArea.Y + workArea.Height - height);
-
-        return new EdgeWindowBounds(x, y, width, height);
+        return new EdgeWindowBounds(x, workArea.Y, width, workArea.Height);
     }
 
     private static int ToPixels(double dips, double scale, int availablePixels) =>

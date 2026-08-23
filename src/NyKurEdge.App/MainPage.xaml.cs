@@ -24,6 +24,8 @@ namespace NyKurEdge.App;
 
 public sealed partial class MainPage : Page, IDisposable
 {
+    private const double ExpandedWaveSurfaceWidthDip = 156;
+
     private readonly AppServices _services;
     private readonly EdgeWindowController _windowController;
     private readonly EdgeInteractionStateMachine _stateMachine = new();
@@ -86,7 +88,8 @@ public sealed partial class MainPage : Page, IDisposable
             IncomingNotificationPulse,
             NotificationHaloPrimary,
             NotificationHaloSecondary,
-            UnreadRing);
+            UnreadRing,
+            LauncherRing);
         _accentController = new AccentTransitionController(
             (GetApplicationBrush("NyKurAccentBrush"), 255),
             (GetApplicationBrush("NyKurAccentSoftBrush"), 80),
@@ -107,6 +110,7 @@ public sealed partial class MainPage : Page, IDisposable
         RegisterVisualTestAccelerator(VirtualKey.F8);
         RegisterVisualTestAccelerator(VirtualKey.F9);
         RegisterVisualTestAccelerator(VirtualKey.F10);
+        RegisterVisualTestAccelerator(VirtualKey.F11);
 #endif
         LoadSettingsControls();
         ApplyEdgeSide();
@@ -132,11 +136,12 @@ public sealed partial class MainPage : Page, IDisposable
             $"NyKur Edge QA · {_windowController.IsExpanded} · {ActualWidth:F0}x{ActualHeight:F0} · surface {EdgeSurface.ActualWidth:F0}x{EdgeSurface.ActualHeight:F0}");
 #endif
         _bubbleController.SetUnread(ViewModel.HasNotification);
+        _bubbleController.SetPinned(false);
         ViewModel.RefreshNotificationAccess();
         _ = LoadStartupStateAsync();
         _ = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().TryEnqueue(
             Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
-            _windowController.EnableLocalizedRegion);
+            _windowController.EnableAdaptiveRegion);
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -188,7 +193,7 @@ public sealed partial class MainPage : Page, IDisposable
     private void OnPointerExited(object sender, PointerRoutedEventArgs e)
     {
         _stateMachine.PointerExited(DateTimeOffset.Now);
-        if (!_settingsOpen)
+        if (!_settingsOpen && !_stateMachine.State.IsPinnedOpen)
         {
             _collapseTimer.Start();
         }
@@ -208,24 +213,59 @@ public sealed partial class MainPage : Page, IDisposable
     {
         LayoutGrid.Width = EdgeWindowLayout.CollapsedWidthDip +
                            ((EdgeWindowLayout.ExpandedWidthDip - EdgeWindowLayout.CollapsedWidthDip) * progress);
+        EdgeSurface.Width = EdgeWindowLayout.CollapsedWidthDip +
+                            ((ExpandedWaveSurfaceWidthDip - EdgeWindowLayout.CollapsedWidthDip) * progress);
+        _edgeRenderer.SetExpansionProgress(progress);
         if (progress > 0.001)
         {
             ExpandedSurface.Visibility = Visibility.Visible;
             PanelContent.Visibility = Visibility.Visible;
         }
 
-        var contentProgress = Math.Clamp((progress - 0.08) / 0.72, 0, 1);
-        ExpandedSurface.Opacity = Math.Clamp((progress - 0.025) / 0.62, 0, 1);
+        var shellProgress = Math.Clamp((progress - 0.015) / 0.78, 0, 1);
+        ExpandedShellTransform.ScaleX = 0.08 + (shellProgress * 0.92);
+        ExpandedShellTransform.ScaleY = 0.16 + (Math.Pow(shellProgress, 0.62) * 0.84);
+        ExpandedSurface.Opacity = Math.Clamp((progress - 0.035) / 0.48, 0, 1);
+
+        var contentProgress = Math.Clamp((progress - 0.22) / 0.62, 0, 1);
         PanelContent.Opacity = contentProgress;
         PanelContent.IsHitTestVisible = contentProgress >= 0.98;
         var direction = EffectiveSide == EdgeSide.Right ? 1 : -1;
-        PanelTransform.TranslateX = direction * (1 - contentProgress) * 12;
+        PanelTransform.TranslateX = direction * (1 - contentProgress) * 18;
+        PanelTransform.ScaleX = 0.97 + (contentProgress * 0.03);
+        PanelTransform.ScaleY = 0.97 + (contentProgress * 0.03);
 
         if (progress <= 0.001)
         {
             PanelContent.IsHitTestVisible = false;
             PanelContent.Visibility = Visibility.Collapsed;
             ExpandedSurface.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void OnEdgeLauncherClicked(object sender, RoutedEventArgs e)
+    {
+        SetPinnedOpen(!_stateMachine.State.IsPinnedOpen);
+#if NYKUR_EDGE_VISUAL_TEST
+        _windowController.SetVisualInspectionStatus(
+            $"NyKur Edge QA · {(_stateMachine.State.IsPinnedOpen ? "orb pinned" : "orb released")}");
+#endif
+    }
+
+    private void SetPinnedOpen(bool pinned)
+    {
+        _collapseTimer.Stop();
+        var state = _stateMachine.SetPinned(pinned, DateTimeOffset.Now);
+        _bubbleController.SetPinned(state.IsPinnedOpen);
+        _windowController.SetPinnedInteraction(state.IsPinnedOpen);
+
+        if (state.IsPinnedOpen)
+        {
+            _windowController.SetExpanded(true);
+        }
+        else if (!state.IsPointerInside && !state.IsGlanceActive && !_settingsOpen)
+        {
+            _collapseTimer.Start();
         }
     }
 
@@ -272,7 +312,7 @@ public sealed partial class MainPage : Page, IDisposable
         else
         {
             _stateMachine.EndGlance(DateTimeOffset.Now);
-            if (!_settingsOpen)
+            if (!_settingsOpen && !_stateMachine.State.IsPinnedOpen)
             {
                 _collapseTimer.Start();
             }
@@ -303,7 +343,9 @@ public sealed partial class MainPage : Page, IDisposable
         _windowController.SetSettingsInteraction(open);
         _windowController.SetExpanded(true);
 
-        if (!open && !_stateMachine.State.IsPointerInside)
+        if (!open &&
+            !_stateMachine.State.IsPointerInside &&
+            !_stateMachine.State.IsPinnedOpen)
         {
             _stateMachine.PointerExited(DateTimeOffset.Now);
             _collapseTimer.Start();
@@ -513,32 +555,44 @@ public sealed partial class MainPage : Page, IDisposable
     private void ApplyEdgeSide(EdgeSide side)
     {
         var settings = ViewModel.Settings;
-        EdgeAnchor.Width = settings.Appearance.EdgeThickness;
+        EdgeAnchor.Width = Math.Clamp(settings.Appearance.EdgeThickness * 0.09, 0.8, 2.2);
         _edgeRenderer.SetSide(side);
 
         if (side == EdgeSide.Right)
         {
-            ExpandedSurface.CornerRadius = new CornerRadius(22, 0, 0, 22);
-            PanelContent.Margin = new Thickness(12, 18, 24, 18);
+            ExpandedSurface.CornerRadius = new CornerRadius(72, 0, 0, 72);
+            ExpandedSurface.RenderTransformOrigin = new Windows.Foundation.Point(1, 0.5);
+            PanelContent.Margin = new Thickness(50, 18, 34, 18);
             EdgeSurface.HorizontalAlignment = HorizontalAlignment.Right;
             EdgeAnchor.HorizontalAlignment = HorizontalAlignment.Right;
-            EdgeAnchor.CornerRadius = new CornerRadius(7, 0, 0, 7);
             EdgeBubbleRoot.HorizontalAlignment = HorizontalAlignment.Right;
-            EdgeBubbleRoot.Margin = new Thickness(0, 0, -2, 0);
+            EdgeBubbleRoot.Margin = new Thickness(0, 0, -28, 0);
+            EdgeLauncherButton.HorizontalAlignment = HorizontalAlignment.Right;
+            EdgeLauncherButton.Margin = new Thickness(0, 0, -28, 0);
             IncomingNotificationPulse.HorizontalAlignment = HorizontalAlignment.Right;
-            IncomingNotificationPulse.Margin = new Thickness(0, 42, 15, 0);
+            IncomingNotificationPulse.Margin = new Thickness(0, 64, 3, 0);
+            BubbleSheen.HorizontalAlignment = HorizontalAlignment.Left;
+            BubbleSheen.Margin = new Thickness(2, 3, 0, 0);
+            BubbleSpark.HorizontalAlignment = HorizontalAlignment.Left;
+            BubbleSpark.Margin = new Thickness(5, 5, 0, 0);
         }
         else
         {
-            ExpandedSurface.CornerRadius = new CornerRadius(0, 22, 22, 0);
-            PanelContent.Margin = new Thickness(24, 18, 12, 18);
+            ExpandedSurface.CornerRadius = new CornerRadius(0, 72, 72, 0);
+            ExpandedSurface.RenderTransformOrigin = new Windows.Foundation.Point(0, 0.5);
+            PanelContent.Margin = new Thickness(34, 18, 50, 18);
             EdgeSurface.HorizontalAlignment = HorizontalAlignment.Left;
             EdgeAnchor.HorizontalAlignment = HorizontalAlignment.Left;
-            EdgeAnchor.CornerRadius = new CornerRadius(0, 7, 7, 0);
             EdgeBubbleRoot.HorizontalAlignment = HorizontalAlignment.Left;
-            EdgeBubbleRoot.Margin = new Thickness(-2, 0, 0, 0);
+            EdgeBubbleRoot.Margin = new Thickness(-28, 0, 0, 0);
+            EdgeLauncherButton.HorizontalAlignment = HorizontalAlignment.Left;
+            EdgeLauncherButton.Margin = new Thickness(-28, 0, 0, 0);
             IncomingNotificationPulse.HorizontalAlignment = HorizontalAlignment.Left;
-            IncomingNotificationPulse.Margin = new Thickness(15, 42, 0, 0);
+            IncomingNotificationPulse.Margin = new Thickness(3, 64, 0, 0);
+            BubbleSheen.HorizontalAlignment = HorizontalAlignment.Right;
+            BubbleSheen.Margin = new Thickness(0, 3, 2, 0);
+            BubbleSpark.HorizontalAlignment = HorizontalAlignment.Right;
+            BubbleSpark.Margin = new Thickness(0, 5, 5, 0);
         }
     }
 
@@ -600,6 +654,11 @@ public sealed partial class MainPage : Page, IDisposable
                 _windowController.SetVisualInspectionSide(_visualTestSide);
                 _windowController.SetVisualInspectionStatus(
                     $"NyKur Edge QA · {_visualTestSide.ToString().ToLowerInvariant()}");
+                break;
+            case VirtualKey.F11:
+                SetPinnedOpen(!_stateMachine.State.IsPinnedOpen);
+                _windowController.SetVisualInspectionStatus(
+                    $"NyKur Edge QA · {(_stateMachine.State.IsPinnedOpen ? "launcher pinned" : "launcher released")}");
                 break;
             default:
                 return;

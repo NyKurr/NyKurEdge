@@ -83,6 +83,7 @@ targetable Edge window for bounded automation. Its compile-only accelerators are
 - `F8`: cycle restrained accent samples;
 - `F9`: toggle collapsed/expanded presentation;
 - `F10`: mirror right/left placement.
+- `F11`: toggle the intentional orb launcher/pinned state.
 
 It must not be used as the normal runtime configuration. Always close the test
 window and verify no `NyKurEdge.App`/`winapp` process remains after inspection.

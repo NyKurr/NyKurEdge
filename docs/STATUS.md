@@ -6,11 +6,15 @@
 - Zero-warning Debug build on .NET 10.
 - Core tests for accent selection, event subscriptions, settings persistence and
   normalization, rapid hover state, media source names, notification filtering,
-  privacy previews, glance-safe interaction state, and localized window geometry.
-- Localized `82 x 320` DIP collapsed surface with a tapered paint/input region.
-- Mirrored right and left inward-flowing wave geometry at 125% display scaling.
+  privacy previews, glance/pin-safe interaction state, and full-height edge geometry.
+- Transparent full-work-area-height Edge with sparse wave/input ribbons rather
+  than a filled sidebar or rectangular idle backdrop.
+- Mirrored right and left inward-flowing wave geometry and half-embedded orb at
+  125% display scaling.
 - Deterministic 100% and 125% layout/DPI coverage in core tests.
 - Layered fluid traces, glass orb, idle breathing, and restrained playing motion.
+- Hover preview and click-to-pin launcher states with an organic acrylic capsule
+  bloom around the existing practical content surface.
 - Notification pulse, expanded orb, icon layer, ripple, hold, and return sequence
   through the bounded visual-test mode.
 - Live Spotify media metadata, artwork, timeline, and playback status through the
@@ -19,9 +23,9 @@
 - Settings scrolling and persisted edge/accent changes.
 - Clock glance appearance and return to the previous surface.
 - Notification access state without triggering a permission prompt.
-- Settled runtime sampling after the redesign measured `17.2%` of one logical
-  core (`~2.2%` total CPU on the eight-thread validation machine) and `146.6 MB`
-  working set while the Windows media integration was active.
+- Settled runtime sampling after the redesign measured `8.8%` of one logical
+  core (`~1.1%` total CPU on the eight-thread validation machine) and `145.4 MB`
+  working set during active Spotify playback.
 
 ## Implemented but requiring broader field testing
 

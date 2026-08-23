@@ -2,8 +2,8 @@
 
 NyKur Edge is a native Windows desktop companion that keeps media, notifications,
 and ambient glances attached to the edge of the primary display. Its normal idle
-surface is a localized 82-by-320-DIP fluid-glass form with a 14-DIP anchor; the
-contextual control surface appears only when requested.
+surface is a transparent, full-height set of fluid traces with a half-embedded
+glass orb; the contextual glass bloom appears only when requested.
 
 This repository contains the initial `0.1.0` vertical slice. It is a real packaged
 WinUI 3 application, not a browser shell or throwaway prototype.
@@ -13,9 +13,12 @@ WinUI 3 application, not a browser shell or throwaway prototype.
 - Borderless, topmost Edge window that stays out of Alt+Tab and does not activate
   merely because it appears.
 - DPI-aware left/right anchoring to the primary monitor work area.
-- Localized tapered input/window region instead of a transparent full-height edge.
-- Layered reusable Bézier traces, restrained bloom, and an integrated glass orb.
-- Cubic-eased hover expansion with a collapse grace period.
+- Full-height but sparse wave/input regions instead of a filled edge bar or a
+  full-width transparent interaction strip.
+- Layered reusable Bézier traces, restrained bloom, and a half-clipped glass orb
+  whose center sits on the physical display boundary.
+- Cubic-eased hover preview plus click-to-pin launcher behavior; the glass shell
+  grows from the orb and keeps a collapse grace period.
 - Windows global media-session discovery, live metadata, artwork, timeline, and
   previous/play-pause/next/seek commands.
 - Artwork-derived automatic accents using OKLab candidate scoring and restrained

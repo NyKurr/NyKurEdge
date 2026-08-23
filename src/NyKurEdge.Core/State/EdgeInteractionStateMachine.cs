@@ -10,10 +10,12 @@ public sealed record EdgeInteractionState(
     EdgeVisibility Visibility,
     bool IsPointerInside,
     bool IsGlanceActive,
+    bool IsPinnedOpen,
     DateTimeOffset? CollapseDueAt)
 {
     public static EdgeInteractionState Initial { get; } = new(
         EdgeVisibility.Collapsed,
+        false,
         false,
         false,
         null);
@@ -41,10 +43,28 @@ public sealed class EdgeInteractionStateMachine(TimeSpan? collapseGrace = null)
         State = State with
         {
             IsPointerInside = false,
-            CollapseDueAt = State.IsGlanceActive ? null : now + _collapseGrace,
+            CollapseDueAt = State.IsGlanceActive || State.IsPinnedOpen
+                ? null
+                : now + _collapseGrace,
         };
         return State;
     }
+
+    public EdgeInteractionState SetPinned(bool pinned, DateTimeOffset now)
+    {
+        State = State with
+        {
+            Visibility = pinned ? EdgeVisibility.Expanded : State.Visibility,
+            IsPinnedOpen = pinned,
+            CollapseDueAt = pinned || State.IsPointerInside || State.IsGlanceActive
+                ? null
+                : now + _collapseGrace,
+        };
+        return State;
+    }
+
+    public EdgeInteractionState TogglePinned(DateTimeOffset now) =>
+        SetPinned(!State.IsPinnedOpen, now);
 
     public EdgeInteractionState BeginGlance()
     {
@@ -62,7 +82,9 @@ public sealed class EdgeInteractionStateMachine(TimeSpan? collapseGrace = null)
         State = State with
         {
             IsGlanceActive = false,
-            CollapseDueAt = State.IsPointerInside ? null : now + _collapseGrace,
+            CollapseDueAt = State.IsPointerInside || State.IsPinnedOpen
+                ? null
+                : now + _collapseGrace,
         };
         return State;
     }
@@ -71,6 +93,7 @@ public sealed class EdgeInteractionStateMachine(TimeSpan? collapseGrace = null)
     {
         if (!State.IsPointerInside &&
             !State.IsGlanceActive &&
+            !State.IsPinnedOpen &&
             State.CollapseDueAt is { } dueAt &&
             now >= dueAt)
         {

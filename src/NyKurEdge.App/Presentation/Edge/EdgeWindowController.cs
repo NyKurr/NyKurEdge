@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
 using NyKurEdge.Core.Display;
 using NyKurEdge.Core.Settings;
 using Windows.Graphics;
@@ -21,6 +22,7 @@ public sealed class EdgeWindowController : IDisposable
     private const uint SetWindowPositionFrameChanged = 0x0020;
     private const uint SetWindowPositionShowWindow = 0x0040;
     private const int AlternateFillMode = 1;
+    private const int RegionOr = 2;
 
     private static readonly IntPtr TopMostWindow = new(-1);
 
@@ -29,6 +31,7 @@ public sealed class EdgeWindowController : IDisposable
     private readonly SettingsService _settings;
     private readonly AppWindow _appWindow;
     private readonly IntPtr _windowHandle;
+    private readonly SystemBackdrop? _expandedBackdrop;
     private readonly DispatcherQueueTimer _animationTimer;
     private readonly DispatcherQueueTimer _displayPollTimer;
     private readonly Stopwatch _animationClock = new();
@@ -41,12 +44,15 @@ public sealed class EdgeWindowController : IDisposable
     private double _animationTo;
     private double _progress;
     private bool _isSettingsInteractive;
-    private bool _canApplyWindowRegion;
-    private bool _collapsedRegionApplied;
+    private bool _isPinnedInteractive;
+    private bool _isBackdropApplied;
+    private bool _canApplyAdaptiveRegion;
+    private bool _windowRegionApplied;
     private int _regionWidth;
     private int _regionHeight;
     private EdgeSide _regionSide;
     private int _regionThickness;
+    private int _regionProgressBucket = -1;
     private bool _disposed;
 
     public EdgeWindowController(
@@ -59,6 +65,8 @@ public sealed class EdgeWindowController : IDisposable
         _settings = settings;
         _appWindow = window.AppWindow;
         _windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
+        _expandedBackdrop = window.SystemBackdrop;
+        _isBackdropApplied = _expandedBackdrop is not null;
         _display = displayService.GetPrimaryDisplay();
 #if NYKUR_EDGE_VISUAL_TEST
         _visualInspectionMode = true;
@@ -116,10 +124,10 @@ public sealed class EdgeWindowController : IDisposable
             SetWindowPositionShowWindow);
     }
 
-    public void EnableLocalizedRegion()
+    public void EnableAdaptiveRegion()
     {
         ThrowIfDisposed();
-        _canApplyWindowRegion = true;
+        _canApplyAdaptiveRegion = true;
         UpdateBounds(_progress);
     }
 
@@ -176,22 +184,19 @@ public sealed class EdgeWindowController : IDisposable
         }
 
         _isSettingsInteractive = enabled;
-        ApplyNativeWindowStyles(noActivate: !enabled);
-        if (enabled)
+        UpdateInteractionActivation();
+    }
+
+    public void SetPinnedInteraction(bool enabled)
+    {
+        ThrowIfDisposed();
+        if (_isPinnedInteractive == enabled)
         {
-            _window.Activate();
+            return;
         }
-        else
-        {
-            _ = SetWindowPos(
-                _windowHandle,
-                TopMostWindow,
-                0,
-                0,
-                0,
-                0,
-                SetWindowPositionNoMove | SetWindowPositionNoSize | SetWindowPositionNoActivate);
-        }
+
+        _isPinnedInteractive = enabled;
+        UpdateInteractionActivation();
     }
 
     public void CloseWindow()
@@ -294,7 +299,8 @@ public sealed class EdgeWindowController : IDisposable
             EffectiveSide,
             expansionProgress);
         _appWindow.MoveAndResize(new RectInt32(bounds.X, bounds.Y, bounds.Width, bounds.Height));
-        if (_canApplyWindowRegion)
+        SetBackdropVisible(expansionProgress > 0.001);
+        if (_canApplyAdaptiveRegion)
         {
             ApplyWindowRegion(bounds.Width, bounds.Height, expansionProgress);
         }
@@ -312,68 +318,211 @@ public sealed class EdgeWindowController : IDisposable
 
     private void ApplyWindowRegion(int width, int height, double expansionProgress)
     {
-        if (expansionProgress > 0.001)
-        {
-            if (_collapsedRegionApplied)
-            {
-                _ = SetWindowRegion(_windowHandle, IntPtr.Zero, redraw: true);
-                _collapsedRegionApplied = false;
-            }
-
-            return;
-        }
-
+        var progress = Math.Clamp(expansionProgress, 0, 1);
+        var progressBucket = (int)Math.Round(progress * 60);
         var side = EffectiveSide;
         var thickness = _settings.Current.Appearance.EdgeThickness;
-        if (_collapsedRegionApplied &&
+        if (_windowRegionApplied &&
             width == _regionWidth &&
             height == _regionHeight &&
             side == _regionSide &&
-            thickness == _regionThickness)
+            thickness == _regionThickness &&
+            progressBucket == _regionProgressBucket)
         {
             return;
         }
 
         var scale = _display.Dpi > 0 ? _display.Dpi / 96d : 1d;
-        const int profilePointCount = 33;
-        var points = new NativePoint[profilePointCount + 2];
-        var outerX = side == EdgeSide.Right ? width - 1 : 0;
-        points[0] = new NativePoint(outerX, 0);
-        for (var index = 0; index < profilePointCount; index++)
-        {
-            var normalizedY = index / (double)(profilePointCount - 1);
-            var upperLobe = Math.Exp(-Math.Pow((normalizedY - 0.34) * 6.2, 2));
-            var lowerLobe = Math.Exp(-Math.Pow((normalizedY - 0.66) * 6.2, 2));
-            var bubbleEnvelope = Math.Exp(-Math.Pow((normalizedY - 0.5) * 13.5, 2));
-            var reachDip =
-                (thickness * 0.72) +
-                (Math.Max(upperLobe, lowerLobe) * 58) +
-                (bubbleEnvelope * 30);
-            var reach = Math.Clamp((int)Math.Round(reachDip * scale), 2, width);
-            var x = side == EdgeSide.Right ? width - reach : reach - 1;
-            var y = Math.Clamp((int)Math.Round(normalizedY * (height - 1)), 0, height - 1);
-            points[index + 1] = new NativePoint(x, y);
-        }
-
-        points[^1] = new NativePoint(outerX, height - 1);
-        var region = CreatePolygonRegion(points, points.Length, AlternateFillMode);
-        if (region == IntPtr.Zero)
+        var composite = CreateRectRegion(0, 0, 0, 0);
+        if (composite == IntPtr.Zero)
         {
             return;
         }
 
-        if (SetWindowRegion(_windowHandle, region, redraw: true) == 0)
+        var anchorWidth = Math.Max(1, (int)Math.Round(Math.Min(thickness, 2.4) * scale));
+        var anchor = side == EdgeSide.Right
+            ? CreateRectRegion(width - anchorWidth, 0, width, height)
+            : CreateRectRegion(0, 0, anchorWidth, height);
+        UnionRegion(composite, anchor);
+
+        foreach (var ribbon in new[]
+                 {
+                     (BaseReach: 3.0, CenterReach: 39.0, OrbReach: 8.0, Band: 11.0, Phase: 0.8),
+                     (BaseReach: 2.2, CenterReach: 27.0, OrbReach: 6.0, Band: 8.0, Phase: 2.3),
+                     (BaseReach: 1.6, CenterReach: 13.0, OrbReach: 4.0, Band: 6.0, Phase: 3.7),
+                 })
         {
-            _ = DeleteObject(region);
+            var waveRegion = CreateWaveRibbonRegion(
+                width,
+                height,
+                side,
+                scale,
+                ribbon.BaseReach,
+                ribbon.CenterReach,
+                ribbon.OrbReach,
+                ribbon.Band,
+                ribbon.Phase);
+            UnionRegion(composite, waveRegion);
+        }
+
+        var orbRadius = Math.Max(1, (int)Math.Round(28 * scale));
+        var centerY = height / 2;
+        var orb = side == EdgeSide.Right
+            ? CreateEllipticRegion(width - orbRadius, centerY - orbRadius, width + orbRadius, centerY + orbRadius)
+            : CreateEllipticRegion(-orbRadius, centerY - orbRadius, orbRadius, centerY + orbRadius);
+        UnionRegion(composite, orb);
+
+        if (progress > 0.001)
+        {
+            var bloom = CreatePanelBloomRegion(width, height, side, scale, progress);
+            UnionRegion(composite, bloom);
+        }
+
+        if (SetWindowRegion(_windowHandle, composite, redraw: true) == 0)
+        {
+            _ = DeleteObject(composite);
             return;
         }
 
-        _collapsedRegionApplied = true;
+        _windowRegionApplied = true;
         _regionWidth = width;
         _regionHeight = height;
         _regionSide = side;
         _regionThickness = thickness;
+        _regionProgressBucket = progressBucket;
     }
+
+    private static IntPtr CreateWaveRibbonRegion(
+        int width,
+        int height,
+        EdgeSide side,
+        double scale,
+        double baseReachDip,
+        double centerReachDip,
+        double orbReachDip,
+        double bandDip,
+        double phase)
+    {
+        const int profilePointCount = 65;
+        var points = new NativePoint[profilePointCount * 2];
+        for (var index = 0; index < profilePointCount; index++)
+        {
+            var normalizedY = index / (double)(profilePointCount - 1);
+            var centerEnvelope = Gaussian(normalizedY, 0.5, 3.15);
+            var orbEnvelope = Gaussian(normalizedY, 0.5, 10.8);
+            var quietDrift = Math.Sin((normalizedY * 15.4) + phase) * 1.35;
+            var reachDip = baseReachDip +
+                           (centerReachDip * centerEnvelope) +
+                           (orbReachDip * orbEnvelope) +
+                           quietDrift;
+            var halfBand = bandDip / 2;
+            var outerReach = Math.Clamp((int)Math.Round((reachDip + halfBand) * scale), 1, width);
+            var innerReach = Math.Clamp((int)Math.Round((reachDip - halfBand) * scale), 0, width);
+            var y = Math.Clamp((int)Math.Round(normalizedY * (height - 1)), 0, height - 1);
+
+            points[index] = new NativePoint(
+                side == EdgeSide.Right ? width - outerReach : outerReach,
+                y);
+            points[(points.Length - 1) - index] = new NativePoint(
+                side == EdgeSide.Right ? width - innerReach : innerReach,
+                y);
+        }
+
+        return CreatePolygonRegion(points, points.Length, AlternateFillMode);
+    }
+
+    private static IntPtr CreatePanelBloomRegion(
+        int width,
+        int height,
+        EdgeSide side,
+        double scale,
+        double progress)
+    {
+        const int profilePointCount = 65;
+        var eased = 1 - Math.Pow(1 - progress, 3);
+        var orbRadius = 28 * scale;
+        var targetHeight = Math.Min(height, EdgeWindowLayout.ExpandedShellHeightDip * scale);
+        var bloomHeight = orbRadius * 2 + ((targetHeight - (orbRadius * 2)) * Math.Pow(eased, 0.72));
+        var halfHeight = bloomHeight / 2;
+        var centerY = height / 2d;
+        var top = centerY - halfHeight;
+        var bottom = centerY + halfHeight;
+        var maximumReach = Math.Max(orbRadius, width - Math.Round(7 * scale));
+        var points = new NativePoint[profilePointCount + 2];
+        var edgeX = side == EdgeSide.Right ? width : 0;
+        points[0] = new NativePoint(edgeX, (int)Math.Round(top));
+
+        for (var index = 0; index < profilePointCount; index++)
+        {
+            var normalized = index / (double)(profilePointCount - 1);
+            var signed = (normalized * 2) - 1;
+            var edgeDistance = Math.Abs(signed);
+            const double shoulderStart = 0.76;
+            var shoulderProgress = Math.Clamp(
+                (edgeDistance - shoulderStart) / (1 - shoulderStart),
+                0,
+                1);
+            var capsule = edgeDistance <= shoulderStart
+                ? 1
+                : Math.Sqrt(Math.Max(0, 1 - (shoulderProgress * shoulderProgress)));
+            var shoulder = Gaussian(normalized, 0.5, 2.1);
+            var reach = orbRadius +
+                        ((maximumReach - orbRadius) * capsule * (0.94 + (shoulder * 0.06)));
+            var x = side == EdgeSide.Right
+                ? width - (int)Math.Round(reach)
+                : (int)Math.Round(reach);
+            var y = (int)Math.Round(top + (normalized * bloomHeight));
+            points[index + 1] = new NativePoint(x, y);
+        }
+
+        points[^1] = new NativePoint(edgeX, (int)Math.Round(bottom));
+        return CreatePolygonRegion(points, points.Length, AlternateFillMode);
+    }
+
+    private static void UnionRegion(IntPtr destination, IntPtr addition)
+    {
+        if (addition == IntPtr.Zero)
+        {
+            return;
+        }
+
+        _ = CombineRegions(destination, destination, addition, RegionOr);
+        _ = DeleteObject(addition);
+    }
+
+    private void UpdateInteractionActivation()
+    {
+        var interactive = _isSettingsInteractive || _isPinnedInteractive;
+        ApplyNativeWindowStyles(noActivate: !interactive);
+        if (interactive)
+        {
+            _window.Activate();
+            return;
+        }
+
+        _ = SetWindowPos(
+            _windowHandle,
+            TopMostWindow,
+            0,
+            0,
+            0,
+            0,
+            SetWindowPositionNoMove | SetWindowPositionNoSize | SetWindowPositionNoActivate);
+    }
+
+    private void SetBackdropVisible(bool visible)
+    {
+        if (_isBackdropApplied == visible || _expandedBackdrop is null)
+        {
+            return;
+        }
+
+        _window.SystemBackdrop = visible ? _expandedBackdrop : null;
+        _isBackdropApplied = visible;
+    }
+
+    private static double Gaussian(double value, double center, double sharpness) =>
+        Math.Exp(-Math.Pow((value - center) * sharpness, 2));
 
     private void ThrowIfDisposed()
     {
@@ -430,6 +579,19 @@ public sealed class EdgeWindowController : IDisposable
         [In] NativePoint[] points,
         int pointCount,
         int fillMode);
+
+    [DllImport("gdi32.dll", EntryPoint = "CreateRectRgn")]
+    private static extern IntPtr CreateRectRegion(int left, int top, int right, int bottom);
+
+    [DllImport("gdi32.dll", EntryPoint = "CreateEllipticRgn")]
+    private static extern IntPtr CreateEllipticRegion(int left, int top, int right, int bottom);
+
+    [DllImport("gdi32.dll", EntryPoint = "CombineRgn")]
+    private static extern int CombineRegions(
+        IntPtr destination,
+        IntPtr sourceOne,
+        IntPtr sourceTwo,
+        int combineMode);
 
     [DllImport("user32.dll", EntryPoint = "SetWindowRgn")]
     private static extern int SetWindowRegion(
