@@ -32,17 +32,27 @@ public sealed class ProceduralEdgeMotionSource : IEdgeMotionSource
     {
         if (!isPlaying)
         {
+            var breath = 0.5 + (Math.Sin(elapsedSeconds * 0.39) * 0.5);
+            var slowDrift = 0.5 + (Math.Sin((elapsedSeconds * 0.17) + 1.7) * 0.5);
             return new EdgeMotionSignal(
-                0.18 + (Math.Sin(elapsedSeconds * 0.72) * 0.035),
-                0.16 + (Math.Sin(elapsedSeconds * 0.43) * 0.025),
-                0.20 + (Math.Sin(elapsedSeconds * 0.61 + 1.2) * 0.03),
-                0.12);
+                0.12 + (breath * 0.07) + (slowDrift * 0.025),
+                0.11 + (slowDrift * 0.055),
+                0.13 + (breath * 0.06),
+                0.08 + ((1 - breath) * 0.025));
         }
 
+        // This deliberately suggests rhythm without pretending to be sampled audio.
+        // The small incommensurate oscillators avoid an obvious repeating equalizer loop.
+        var pulse = 0.5 + (Math.Sin(
+            (elapsedSeconds * 1.72) +
+            (Math.Sin(elapsedSeconds * 0.31) * 0.24)) * 0.5);
+        var swell = 0.5 + (Math.Sin((elapsedSeconds * 0.73) + 0.8) * 0.5);
+        var shimmer = 0.5 + (Math.Sin((elapsedSeconds * 2.41) + 2.1) * 0.5);
+
         return new EdgeMotionSignal(
-            0.62 + (Math.Sin(elapsedSeconds * 1.8) * 0.09),
-            0.58 + (Math.Sin(elapsedSeconds * 1.15 + 0.4) * 0.11),
-            0.52 + (Math.Sin(elapsedSeconds * 2.05 + 1.1) * 0.10),
-            0.34 + (Math.Sin(elapsedSeconds * 2.7 + 2.0) * 0.07)).Normalize();
+            0.42 + (pulse * 0.18) + (swell * 0.09),
+            0.38 + (swell * 0.20) + (pulse * 0.08),
+            0.34 + (pulse * 0.17) + (shimmer * 0.10),
+            0.22 + (shimmer * 0.15)).Normalize();
     }
 }

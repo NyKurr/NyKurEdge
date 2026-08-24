@@ -9,6 +9,7 @@ public sealed class EdgeBubbleController : IDisposable
 {
     private readonly FrameworkElement _surface;
     private readonly FrameworkElement _breathHost;
+    private readonly FrameworkElement _interactionHost;
     private readonly FrameworkElement _bubbleBody;
     private readonly FrameworkElement _iconHost;
     private readonly FrameworkElement _incomingPulse;
@@ -16,11 +17,14 @@ public sealed class EdgeBubbleController : IDisposable
     private readonly FrameworkElement _haloSecondary;
     private readonly FrameworkElement _unreadRing;
     private readonly FrameworkElement _launcherRing;
+    private bool _isPointerOver;
+    private bool _isPinned;
     private bool _disposed;
 
     public EdgeBubbleController(
         FrameworkElement surface,
         FrameworkElement breathHost,
+        FrameworkElement interactionHost,
         FrameworkElement bubbleBody,
         FrameworkElement iconHost,
         FrameworkElement incomingPulse,
@@ -31,6 +35,7 @@ public sealed class EdgeBubbleController : IDisposable
     {
         _surface = surface;
         _breathHost = breathHost;
+        _interactionHost = interactionHost;
         _bubbleBody = bubbleBody;
         _iconHost = iconHost;
         _incomingPulse = incomingPulse;
@@ -49,12 +54,11 @@ public sealed class EdgeBubbleController : IDisposable
         visual.StopAnimation("Scale");
 
         var animation = visual.Compositor.CreateVector3KeyFrameAnimation();
-        animation.InsertKeyFrame(0, Vector3.One);
-        var peak = isPlaying ? 1.055f : 1.025f;
-        animation.InsertKeyFrame(1, new Vector3(peak, peak, 1));
-        animation.Duration = TimeSpan.FromMilliseconds(isPlaying ? 1320 : 2600);
-        animation.Direction = AnimationDirection.Alternate;
-        animation.IterationBehavior = AnimationIterationBehavior.Forever;
+        animation.InsertKeyFrame(0, visual.Scale);
+        var peak = isPlaying ? 1.045f : 1.022f;
+        animation.InsertKeyFrame(0.36f, new Vector3(peak, peak, 1), EaseOut(visual.Compositor));
+        animation.InsertKeyFrame(1, Vector3.One, EaseInOut(visual.Compositor));
+        animation.Duration = TimeSpan.FromMilliseconds(isPlaying ? 780 : 960);
         visual.StartAnimation("Scale", animation);
     }
 
@@ -72,21 +76,49 @@ public sealed class EdgeBubbleController : IDisposable
     public void SetPinned(bool pinned)
     {
         ThrowIfDisposed();
-        var visual = PrepareVisual(_launcherRing);
-        var compositor = visual.Compositor;
+        _isPinned = pinned;
+        UpdateInteractionState();
+    }
+
+    public void SetPointerOver(bool pointerOver)
+    {
+        ThrowIfDisposed();
+        _isPointerOver = pointerOver;
+        UpdateInteractionState();
+    }
+
+    private void UpdateInteractionState()
+    {
+        var ringVisual = PrepareVisual(_launcherRing);
+        var compositor = ringVisual.Compositor;
+        var targetOpacity = _isPinned ? 0.46f : _isPointerOver ? 0.24f : 0f;
+        var targetRingScale = _isPinned ? 1.11f : _isPointerOver ? 1.055f : 1f;
+        var duration = TimeSpan.FromMilliseconds((_isPinned || _isPointerOver) ? 250 : 390);
 
         var opacity = compositor.CreateScalarKeyFrameAnimation();
-        opacity.InsertKeyFrame(0, visual.Opacity);
-        opacity.InsertKeyFrame(1, pinned ? 0.42f : 0f, EaseOut(compositor));
-        opacity.Duration = TimeSpan.FromMilliseconds(pinned ? 240 : 360);
+        opacity.InsertKeyFrame(0, ringVisual.Opacity);
+        opacity.InsertKeyFrame(1, targetOpacity, EaseOut(compositor));
+        opacity.Duration = duration;
 
         var scale = compositor.CreateVector3KeyFrameAnimation();
-        scale.InsertKeyFrame(0, visual.Scale);
-        scale.InsertKeyFrame(1, pinned ? new Vector3(1.08f, 1.08f, 1) : Vector3.One, EaseOut(compositor));
-        scale.Duration = opacity.Duration;
+        scale.InsertKeyFrame(0, ringVisual.Scale);
+        scale.InsertKeyFrame(1, new Vector3(targetRingScale, targetRingScale, 1), EaseOut(compositor));
+        scale.Duration = duration;
 
-        visual.StartAnimation("Opacity", opacity);
-        visual.StartAnimation("Scale", scale);
+        ringVisual.StartAnimation("Opacity", opacity);
+        ringVisual.StartAnimation("Scale", scale);
+
+        var interactionVisual = PrepareVisual(_interactionHost);
+        var targetBodyScale = _isPinned ? 1.045f : _isPointerOver ? 1.03f : 1f;
+        var bodyScale = compositor.CreateVector3KeyFrameAnimation();
+        bodyScale.InsertKeyFrame(0, interactionVisual.Scale);
+        bodyScale.InsertKeyFrame(
+            1,
+            new Vector3(targetBodyScale, targetBodyScale, 1),
+            EaseOut(compositor));
+        bodyScale.Duration = duration;
+
+        interactionVisual.StartAnimation("Scale", bodyScale);
     }
 
     public void TriggerNotification(double timingScale = 1)
@@ -121,6 +153,7 @@ public sealed class EdgeBubbleController : IDisposable
         foreach (var element in new[]
                  {
                      _breathHost,
+                     _interactionHost,
                      _bubbleBody,
                      _iconHost,
                      _incomingPulse,
@@ -166,10 +199,10 @@ public sealed class EdgeBubbleController : IDisposable
         var compositor = visual.Compositor;
         var animation = compositor.CreateVector3KeyFrameAnimation();
         animation.InsertKeyFrame(0, Vector3.One);
-        animation.InsertKeyFrame(0.14f, new Vector3(1.56f, 1.56f, 1), EaseOut(compositor));
-        animation.InsertKeyFrame(0.70f, new Vector3(1.56f, 1.56f, 1));
+        animation.InsertKeyFrame(0.14f, new Vector3(1.68f, 1.30f, 1), EaseOut(compositor));
+        animation.InsertKeyFrame(0.70f, new Vector3(1.68f, 1.30f, 1));
         animation.InsertKeyFrame(1, Vector3.One, EaseInOut(compositor));
-        animation.Duration = TimeSpan.FromMilliseconds(1840 * timingScale);
+        animation.Duration = TimeSpan.FromMilliseconds(1760 * timingScale);
         visual.StartAnimation("Scale", animation);
     }
 
@@ -185,7 +218,7 @@ public sealed class EdgeBubbleController : IDisposable
         opacity.InsertKeyFrame(0.72f, 0.94f);
         opacity.InsertKeyFrame(0.92f, 0);
         opacity.InsertKeyFrame(1, 0);
-        opacity.Duration = TimeSpan.FromMilliseconds(1840 * timingScale);
+        opacity.Duration = TimeSpan.FromMilliseconds(1760 * timingScale);
 
         var scale = compositor.CreateVector3KeyFrameAnimation();
         scale.InsertKeyFrame(0, new Vector3(0.62f, 0.62f, 1));

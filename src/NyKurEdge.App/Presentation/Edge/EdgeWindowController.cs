@@ -267,10 +267,13 @@ public sealed class EdgeWindowController : IDisposable
 
     private void OnAnimationTick(DispatcherQueueTimer sender, object args)
     {
-        const double durationMilliseconds = 238;
+        var expanding = _animationTo > _animationFrom;
+        var durationMilliseconds = expanding ? 286d : 226d;
         var elapsed = _animationClock.Elapsed.TotalMilliseconds;
         var time = Math.Clamp(elapsed / durationMilliseconds, 0, 1);
-        var eased = 1 - Math.Pow(1 - time, 3);
+        var eased = expanding
+            ? 1 - Math.Pow(1 - time, 4)
+            : time * time * (3 - (2 * time));
         SetProgress(_animationFrom + ((_animationTo - _animationFrom) * eased));
 
         if (time >= 1)
@@ -347,9 +350,9 @@ public sealed class EdgeWindowController : IDisposable
 
         foreach (var ribbon in new[]
                  {
-                     (BaseReach: 3.0, CenterReach: 39.0, OrbReach: 8.0, Band: 11.0, Phase: 0.8),
-                     (BaseReach: 2.2, CenterReach: 27.0, OrbReach: 6.0, Band: 8.0, Phase: 2.3),
-                     (BaseReach: 1.6, CenterReach: 13.0, OrbReach: 4.0, Band: 6.0, Phase: 3.7),
+                     (BaseReach: 2.7, CenterReach: 34.0, OrbReach: 9.0, Band: 20.0, Phase: 0.8),
+                     (BaseReach: 1.6, CenterReach: 20.0, OrbReach: 5.5, Band: 12.0, Phase: 2.3),
+                     (BaseReach: 1.05, CenterReach: 11.0, OrbReach: 3.5, Band: 8.0, Phase: 3.7),
                  })
         {
             var waveRegion = CreateWaveRibbonRegion(
@@ -365,11 +368,20 @@ public sealed class EdgeWindowController : IDisposable
             UnionRegion(composite, waveRegion);
         }
 
-        var orbRadius = Math.Max(1, (int)Math.Round(28 * scale));
+        var orbHalfWidth = Math.Max(1, (int)Math.Round(32 * scale));
+        var orbHalfHeight = Math.Max(1, (int)Math.Round(45 * scale));
         var centerY = height / 2;
         var orb = side == EdgeSide.Right
-            ? CreateEllipticRegion(width - orbRadius, centerY - orbRadius, width + orbRadius, centerY + orbRadius)
-            : CreateEllipticRegion(-orbRadius, centerY - orbRadius, orbRadius, centerY + orbRadius);
+            ? CreateEllipticRegion(
+                width - orbHalfWidth,
+                centerY - orbHalfHeight,
+                width + orbHalfWidth,
+                centerY + orbHalfHeight)
+            : CreateEllipticRegion(
+                -orbHalfWidth,
+                centerY - orbHalfHeight,
+                orbHalfWidth,
+                centerY + orbHalfHeight);
         UnionRegion(composite, orb);
 
         if (progress > 0.001)
@@ -408,12 +420,22 @@ public sealed class EdgeWindowController : IDisposable
         for (var index = 0; index < profilePointCount; index++)
         {
             var normalizedY = index / (double)(profilePointCount - 1);
-            var centerEnvelope = Gaussian(normalizedY, 0.5, 3.15);
-            var orbEnvelope = Gaussian(normalizedY, 0.5, 10.8);
-            var quietDrift = Math.Sin((normalizedY * 15.4) + phase) * 1.35;
+            var centerEnvelope = Gaussian(normalizedY, 0.5, 3.85);
+            var orbChannel = Gaussian(normalizedY, 0.5, 17.5);
+            var orbShoulders =
+                Gaussian(normalizedY, 0.44, 22.0) +
+                Gaussian(normalizedY, 0.56, 22.0);
+            var orbFlow = (orbShoulders * 0.90) - (orbChannel * 0.90);
+            var shapedCenterReach =
+                centerReachDip *
+                centerEnvelope *
+                (1 - (orbChannel * 0.28));
+            var quietDrift =
+                (Math.Sin((normalizedY * 12.4) + phase) * 1.2) +
+                (Math.Sin((normalizedY * 24.8) + (phase * 0.73)) * 0.42);
             var reachDip = baseReachDip +
-                           (centerReachDip * centerEnvelope) +
-                           (orbReachDip * orbEnvelope) +
+                           shapedCenterReach +
+                           (orbReachDip * orbFlow) +
                            quietDrift;
             var halfBand = bandDip / 2;
             var outerReach = Math.Clamp((int)Math.Round((reachDip + halfBand) * scale), 1, width);
@@ -440,7 +462,7 @@ public sealed class EdgeWindowController : IDisposable
     {
         const int profilePointCount = 65;
         var eased = 1 - Math.Pow(1 - progress, 3);
-        var orbRadius = 28 * scale;
+        var orbRadius = 32 * scale;
         var targetHeight = Math.Min(height, EdgeWindowLayout.ExpandedShellHeightDip * scale);
         var bloomHeight = orbRadius * 2 + ((targetHeight - (orbRadius * 2)) * Math.Pow(eased, 0.72));
         var halfHeight = bloomHeight / 2;

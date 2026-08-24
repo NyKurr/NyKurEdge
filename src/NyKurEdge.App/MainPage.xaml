@@ -17,510 +17,574 @@
             x:Name="LayoutGrid"
             Width="82"
             HorizontalAlignment="Left">
-            <Border
+            <Grid
                 x:Name="ExpandedSurface"
-                Height="560"
+                Height="568"
                 VerticalAlignment="Center"
-                Background="#9414171C"
-                BorderBrush="#26FFFFFF"
-                BorderThickness="1"
-                CornerRadius="64,0,0,64"
                 IsHitTestVisible="False"
                 Opacity="0"
                 RenderTransformOrigin="1,0.5"
                 Visibility="Collapsed">
-                <Border.RenderTransform>
+                <Grid.RenderTransform>
                     <CompositeTransform
                         x:Name="ExpandedShellTransform"
-                        ScaleX="0.08"
-                        ScaleY="0.16" />
-                </Border.RenderTransform>
-            </Border>
+                        ScaleX="0.04"
+                        ScaleY="0.12" />
+                </Grid.RenderTransform>
+
+                <Grid
+                    x:Name="ExpandedShellArtwork"
+                    RenderTransformOrigin="0.5,0.5">
+                    <Grid.RenderTransform>
+                        <ScaleTransform x:Name="ExpandedShellMirror" ScaleX="1" />
+                    </Grid.RenderTransform>
+
+                    <Path
+                        x:Name="BloomShell"
+                        Data="M 408,0 L 112,0 C 76,0 54,22 45,58 C 39,84 21,99 12,132 C 5,158 3,194 3,232 L 3,336 C 3,374 5,410 12,436 C 21,469 39,484 45,510 C 54,546 76,568 112,568 L 408,568 Z"
+                        Fill="{StaticResource NyKurSurfaceBrush}"
+                        Stretch="Fill" />
+                    <Path
+                        Margin="6"
+                        Data="M 408,0 L 112,0 C 76,0 54,22 45,58 C 39,84 21,99 12,132 C 5,158 3,194 3,232 L 3,336 C 3,374 5,410 12,436 C 21,469 39,484 45,510 C 54,546 76,568 112,568 L 408,568 Z"
+                        Fill="Transparent"
+                        Opacity="0.62"
+                        Stretch="Fill"
+                        Stroke="{StaticResource NyKurHairlineBrush}"
+                        StrokeThickness="1" />
+                    <Ellipse
+                        x:Name="BloomAccentAtmosphere"
+                        Width="260"
+                        Height="430"
+                        Margin="0,0,-118,0"
+                        HorizontalAlignment="Right"
+                        Fill="{StaticResource NyKurAccentFaintBrush}"
+                        Opacity="0.34" />
+                    <Border
+                        x:Name="BloomLumen"
+                        Width="14"
+                        Height="194"
+                        Margin="0,0,-6,0"
+                        HorizontalAlignment="Right"
+                        Background="{StaticResource NyKurAccentFaintBrush}"
+                        CornerRadius="7"
+                        Opacity="0.72" />
+                    <Border
+                        x:Name="BloomSeam"
+                        Width="1"
+                        Height="126"
+                        HorizontalAlignment="Right"
+                        Background="{StaticResource NyKurGlassTraceBrush}"
+                        CornerRadius="1"
+                        Opacity="0.38" />
+                </Grid>
+            </Grid>
 
             <Grid
                 x:Name="PanelContent"
-                Height="470"
-                Margin="12,18,24,18"
+                Height="496"
+                Margin="60,30,32,30"
+                VerticalAlignment="Center"
                 IsHitTestVisible="False"
                 Opacity="0"
                 RenderTransformOrigin="0.5,0.5"
-                VerticalAlignment="Center"
                 Visibility="Collapsed">
-                    <Grid.RenderTransform>
-                        <CompositeTransform x:Name="PanelTransform" TranslateX="12" />
-                    </Grid.RenderTransform>
+                <Grid.RenderTransform>
+                    <CompositeTransform x:Name="PanelTransform" TranslateX="18" />
+                </Grid.RenderTransform>
 
-                    <ScrollViewer
-                        HorizontalScrollBarVisibility="Disabled"
-                        VerticalScrollBarVisibility="Hidden"
-                        VerticalScrollMode="Auto">
-                        <Grid>
-                            <StackPanel x:Name="HomePane" Spacing="14">
-                                <Grid Margin="4,0,2,4">
+                <ScrollViewer
+                    HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Hidden"
+                    VerticalScrollMode="Auto">
+                    <Grid>
+                        <StackPanel x:Name="HomePane" Spacing="12">
+                            <Grid Margin="2,0,0,5">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <Grid Width="12" Height="38">
+                                    <Border
+                                        Width="2"
+                                        Height="25"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Center"
+                                        Background="{StaticResource NyKurAccentBrush}"
+                                        CornerRadius="1"
+                                        Opacity="0.76" />
+                                    <Ellipse
+                                        Width="7"
+                                        Height="7"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Center"
+                                        Fill="{StaticResource NyKurAccentSoftBrush}"
+                                        Opacity="0.68" />
+                                </Grid>
+
+                                <StackPanel
+                                    Grid.Column="1"
+                                    Margin="8,0,0,0"
+                                    VerticalAlignment="Center">
+                                    <TextBlock
+                                        Style="{StaticResource NyKurSectionLabelStyle}"
+                                        Text="NYKUR EDGE" />
+                                    <TextBlock
+                                        Margin="0,2,0,0"
+                                        Style="{StaticResource NyKurCaptionStyle}"
+                                        Text="Ambient presence" />
+                                </StackPanel>
+
+                                <Button
+                                    Grid.Column="2"
+                                    Width="62"
+                                    Margin="0,0,7,0"
+                                    AutomationProperties.Name="Preview clock glance"
+                                    Click="OnPreviewClockClicked"
+                                    Content="{x:Bind ViewModel.HeaderTime, Mode=OneWay}"
+                                    FontFamily="Segoe UI Variable Text"
+                                    FontSize="12"
+                                    Style="{StaticResource NyKurIconButtonStyle}" />
+
+                                <Button
+                                    Grid.Column="3"
+                                    AutomationProperties.Name="Settings"
+                                    Click="OnSettingsClicked"
+                                    Content="&#xE713;"
+                                    Style="{StaticResource NyKurIconButtonStyle}" />
+                            </Grid>
+
+                            <Border Style="{StaticResource NyKurHeroSurfaceStyle}">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="108" />
                                         <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
 
-                                    <Border
-                                        Width="38"
-                                        Height="38"
-                                        Background="{StaticResource NyKurAccentFaintBrush}"
-                                        CornerRadius="12">
-                                        <TextBlock
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center"
-                                            FontSize="14"
-                                            FontWeight="SemiBold"
-                                            Foreground="{StaticResource NyKurAccentBrush}"
-                                            Text="NE" />
-                                    </Border>
+                                    <Grid Width="94" Height="94">
+                                        <Ellipse
+                                            Width="112"
+                                            Height="112"
+                                            Fill="{StaticResource NyKurAccentFaintBrush}"
+                                            Opacity="0.52" />
+                                        <Border
+                                            Width="94"
+                                            Height="94"
+                                            Background="#401A2028"
+                                            BorderBrush="{StaticResource NyKurHairlineBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="24">
+                                            <FontIcon
+                                                FontSize="25"
+                                                Foreground="{StaticResource NyKurAccentSoftBrush}"
+                                                Glyph="&#xE8D6;" />
+                                        </Border>
+                                        <Border Width="94" Height="94" CornerRadius="24">
+                                            <Image
+                                                Source="{x:Bind ViewModel.Artwork, Mode=OneWay}"
+                                                Stretch="UniformToFill" />
+                                        </Border>
+                                        <Border
+                                            Width="94"
+                                            Height="94"
+                                            BorderBrush="#30FFFFFF"
+                                            BorderThickness="1"
+                                            CornerRadius="24" />
+                                    </Grid>
 
                                     <StackPanel
                                         Grid.Column="1"
-                                        Margin="12,1,0,0"
+                                        Margin="4,2,0,0"
                                         VerticalAlignment="Center">
-                                        <TextBlock
-                                            Style="{StaticResource NyKurSectionLabelStyle}"
-                                            Text="NYKUR EDGE" />
-                                        <TextBlock
-                                            Margin="0,2,0,0"
-                                            FontSize="12"
-                                            Foreground="{StaticResource NyKurMutedTextBrush}"
-                                            Text="Ambient desktop companion" />
-                                    </StackPanel>
-
-                                    <Button
-                                        Grid.Column="2"
-                                        Margin="0,0,6,0"
-                                        AutomationProperties.Name="Preview clock glance"
-                                        Click="OnPreviewClockClicked"
-                                        Content="{x:Bind ViewModel.HeaderTime, Mode=OneWay}"
-                                        FontFamily="Segoe UI Variable Text"
-                                        FontSize="12"
-                                        Style="{StaticResource NyKurIconButtonStyle}" />
-
-                                    <Button
-                                        Grid.Column="3"
-                                        AutomationProperties.Name="Settings"
-                                        Click="OnSettingsClicked"
-                                        Content="&#xE713;"
-                                        Style="{StaticResource NyKurIconButtonStyle}" />
-                                </Grid>
-
-                                <Border
-                                    Background="{StaticResource NyKurCardBrush}"
-                                    CornerRadius="20"
-                                    Padding="16">
-                                    <Grid>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="Auto" />
-                                        </Grid.RowDefinitions>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="78" />
-                                            <ColumnDefinition Width="*" />
-                                        </Grid.ColumnDefinitions>
-
-                                        <Grid Width="66" Height="66">
-                                            <Border
-                                                Background="{StaticResource NyKurAccentFaintBrush}"
-                                                CornerRadius="16">
-                                                <TextBlock
-                                                    HorizontalAlignment="Center"
-                                                    VerticalAlignment="Center"
-                                                    FontSize="15"
-                                                    FontWeight="SemiBold"
-                                                    Foreground="{StaticResource NyKurAccentBrush}"
-                                                    Text="NE" />
-                                            </Border>
-                                            <Border CornerRadius="16">
-                                                <Image
-                                                    Source="{x:Bind ViewModel.Artwork, Mode=OneWay}"
-                                                    Stretch="UniformToFill" />
-                                            </Border>
-                                        </Grid>
-
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Ellipse
+                                                Width="5"
+                                                Height="5"
+                                                VerticalAlignment="Center"
+                                                Fill="{StaticResource NyKurAccentBrush}"
+                                                Opacity="0.72" />
                                             <TextBlock
                                                 Style="{StaticResource NyKurSectionLabelStyle}"
                                                 Text="{x:Bind ViewModel.MediaSource, Mode=OneWay}" />
-                                            <TextBlock
-                                                Margin="0,6,0,0"
-                                                FontSize="17"
-                                                FontWeight="SemiBold"
-                                                Foreground="{StaticResource NyKurTextBrush}"
-                                                MaxLines="1"
-                                                Text="{x:Bind ViewModel.MediaTitle, Mode=OneWay}"
-                                                TextTrimming="CharacterEllipsis" />
-                                            <TextBlock
-                                                Margin="0,3,0,0"
-                                                FontSize="13"
-                                                Foreground="{StaticResource NyKurMutedTextBrush}"
-                                                MaxLines="1"
-                                                Text="{x:Bind ViewModel.MediaArtist, Mode=OneWay}"
-                                                TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
-
-                                        <Grid Grid.Row="1" Grid.ColumnSpan="2" Margin="0,15,0,0">
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto" />
-                                                <RowDefinition Height="Auto" />
-                                            </Grid.RowDefinitions>
-                                            <Slider
-                                                x:Name="MediaProgressSlider"
-                                                Height="20"
-                                                IsEnabled="{x:Bind ViewModel.IsMediaAvailable, Mode=OneWay}"
-                                                Maximum="1"
-                                                Minimum="0"
-                                                PointerReleased="OnMediaProgressPointerReleased"
-                                                Value="{x:Bind ViewModel.MediaProgress, Mode=OneWay}" />
-                                            <Grid Grid.Row="1" Margin="4,-2,4,0">
-                                                <TextBlock
-                                                    FontSize="10"
-                                                    Foreground="{StaticResource NyKurMutedTextBrush}"
-                                                    Text="{x:Bind ViewModel.PositionText, Mode=OneWay}" />
-                                                <TextBlock
-                                                    HorizontalAlignment="Right"
-                                                    FontSize="10"
-                                                    Foreground="{StaticResource NyKurMutedTextBrush}"
-                                                    Text="{x:Bind ViewModel.DurationText, Mode=OneWay}" />
-                                            </Grid>
-                                        </Grid>
-
-                                        <StackPanel
-                                            Grid.Row="2"
-                                            Grid.ColumnSpan="2"
-                                            Margin="0,10,0,0"
-                                            HorizontalAlignment="Center"
-                                            Orientation="Horizontal"
-                                            Spacing="10">
-                                            <Button
-                                                AutomationProperties.Name="Previous track"
-                                                Click="OnPreviousClicked"
-                                                Content="&#xE892;"
-                                                IsEnabled="{x:Bind ViewModel.IsMediaAvailable, Mode=OneWay}"
-                                                Style="{StaticResource NyKurIconButtonStyle}" />
-                                            <Button
-                                                AutomationProperties.Name="Play or pause"
-                                                Background="{StaticResource NyKurAccentBrush}"
-                                                Click="OnPlayPauseClicked"
-                                                Content="{x:Bind ViewModel.PlayPauseGlyph, Mode=OneWay}"
-                                                Foreground="#FF090A0D"
-                                                IsEnabled="{x:Bind ViewModel.IsMediaAvailable, Mode=OneWay}"
-                                                Style="{StaticResource NyKurIconButtonStyle}" />
-                                            <Button
-                                                AutomationProperties.Name="Next track"
-                                                Click="OnNextClicked"
-                                                Content="&#xE893;"
-                                                IsEnabled="{x:Bind ViewModel.IsMediaAvailable, Mode=OneWay}"
-                                                Style="{StaticResource NyKurIconButtonStyle}" />
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
-
-                                <Border
-                                    Background="#99191C21"
-                                    CornerRadius="18"
-                                    Padding="15">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="42" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-
-                                        <Grid Width="34" Height="34">
-                                            <Border
-                                                Background="{StaticResource NyKurAccentFaintBrush}"
-                                                CornerRadius="11">
-                                                <FontIcon
-                                                    HorizontalAlignment="Center"
-                                                    VerticalAlignment="Center"
-                                                    FontSize="14"
-                                                    Foreground="{StaticResource NyKurAccentBrush}"
-                                                    Glyph="&#xEA8F;" />
-                                            </Border>
-                                            <Border CornerRadius="11">
-                                                <Image
-                                                    Source="{x:Bind ViewModel.NotificationIcon, Mode=OneWay}"
-                                                    Stretch="UniformToFill" />
-                                            </Border>
-                                        </Grid>
-
-                                        <StackPanel Grid.Column="1" Margin="10,0,8,0">
-                                            <TextBlock
-                                                FontSize="11"
-                                                FontWeight="SemiBold"
-                                                Foreground="{StaticResource NyKurAccentBrush}"
-                                                Text="{x:Bind ViewModel.NotificationApplication, Mode=OneWay}" />
-                                            <TextBlock
-                                                Margin="0,4,0,0"
-                                                FontSize="14"
-                                                FontWeight="SemiBold"
-                                                Foreground="{StaticResource NyKurTextBrush}"
-                                                MaxLines="1"
-                                                Text="{x:Bind ViewModel.NotificationTitle, Mode=OneWay}"
-                                                TextTrimming="CharacterEllipsis" />
-                                            <TextBlock
-                                                Margin="0,3,0,0"
-                                                FontSize="12"
-                                                Foreground="{StaticResource NyKurMutedTextBrush}"
-                                                MaxLines="2"
-                                                Text="{x:Bind ViewModel.NotificationMessage, Mode=OneWay}"
-                                                TextTrimming="CharacterEllipsis"
-                                                TextWrapping="Wrap" />
-                                        </StackPanel>
-
                                         <TextBlock
-                                            Grid.Column="2"
-                                            FontSize="10"
+                                            Margin="0,8,0,0"
+                                            MaxLines="2"
+                                            Style="{StaticResource NyKurBodyTitleStyle}"
+                                            Text="{x:Bind ViewModel.MediaTitle, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis"
+                                            TextWrapping="Wrap" />
+                                        <TextBlock
+                                            Margin="0,5,0,0"
+                                            FontSize="13"
                                             Foreground="{StaticResource NyKurMutedTextBrush}"
-                                            Text="{x:Bind ViewModel.NotificationTime, Mode=OneWay}" />
-                                    </Grid>
-                                </Border>
+                                            MaxLines="1"
+                                            Text="{x:Bind ViewModel.MediaArtist, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
 
-                                <Grid Margin="5,2,5,0">
+                                    <Grid Grid.Row="1" Grid.ColumnSpan="2" Margin="0,17,0,0">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Slider
+                                            x:Name="MediaProgressSlider"
+                                            Height="18"
+                                            IsEnabled="{x:Bind ViewModel.IsMediaAvailable, Mode=OneWay}"
+                                            Maximum="1"
+                                            Minimum="0"
+                                            PointerReleased="OnMediaProgressPointerReleased"
+                                            Value="{x:Bind ViewModel.MediaProgress, Mode=OneWay}" />
+                                        <Grid Grid.Row="1" Margin="4,-3,4,0">
+                                            <TextBlock
+                                                Style="{StaticResource NyKurCaptionStyle}"
+                                                Text="{x:Bind ViewModel.PositionText, Mode=OneWay}" />
+                                            <TextBlock
+                                                HorizontalAlignment="Right"
+                                                Style="{StaticResource NyKurCaptionStyle}"
+                                                Text="{x:Bind ViewModel.DurationText, Mode=OneWay}" />
+                                        </Grid>
+                                    </Grid>
+
+                                    <StackPanel
+                                        Grid.Row="2"
+                                        Grid.ColumnSpan="2"
+                                        Margin="0,12,0,0"
+                                        HorizontalAlignment="Center"
+                                        Orientation="Horizontal"
+                                        Spacing="12">
+                                        <Button
+                                            AutomationProperties.Name="Previous track"
+                                            Click="OnPreviousClicked"
+                                            Content="&#xE892;"
+                                            IsEnabled="{x:Bind ViewModel.IsMediaAvailable, Mode=OneWay}"
+                                            Style="{StaticResource NyKurTransportButtonStyle}" />
+                                        <Button
+                                            AutomationProperties.Name="Play or pause"
+                                            Click="OnPlayPauseClicked"
+                                            Content="{x:Bind ViewModel.PlayPauseGlyph, Mode=OneWay}"
+                                            IsEnabled="{x:Bind ViewModel.IsMediaAvailable, Mode=OneWay}"
+                                            Style="{StaticResource NyKurPrimaryTransportButtonStyle}" />
+                                        <Button
+                                            AutomationProperties.Name="Next track"
+                                            Click="OnNextClicked"
+                                            Content="&#xE893;"
+                                            IsEnabled="{x:Bind ViewModel.IsMediaAvailable, Mode=OneWay}"
+                                            Style="{StaticResource NyKurTransportButtonStyle}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <Border Style="{StaticResource NyKurGlassSectionStyle}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="45" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <Grid Width="36" Height="36">
+                                        <Border
+                                            Background="{StaticResource NyKurAccentFaintBrush}"
+                                            BorderBrush="{StaticResource NyKurSoftHairlineBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="12">
+                                            <FontIcon
+                                                FontSize="14"
+                                                Foreground="{StaticResource NyKurAccentBrush}"
+                                                Glyph="&#xEA8F;" />
+                                        </Border>
+                                        <Border CornerRadius="12">
+                                            <Image
+                                                Source="{x:Bind ViewModel.NotificationIcon, Mode=OneWay}"
+                                                Stretch="UniformToFill" />
+                                        </Border>
+                                    </Grid>
+
+                                    <StackPanel Grid.Column="1" Margin="2,-1,8,0">
+                                        <TextBlock
+                                            FontSize="10"
+                                            FontWeight="SemiBold"
+                                            CharacterSpacing="105"
+                                            Foreground="{StaticResource NyKurAccentBrush}"
+                                            Text="{x:Bind ViewModel.NotificationApplication, Mode=OneWay}" />
+                                        <TextBlock
+                                            Margin="0,4,0,0"
+                                            FontSize="14"
+                                            FontWeight="SemiBold"
+                                            Foreground="{StaticResource NyKurTextBrush}"
+                                            MaxLines="1"
+                                            Text="{x:Bind ViewModel.NotificationTitle, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis" />
+                                        <TextBlock
+                                            Margin="0,3,0,0"
+                                            FontSize="11"
+                                            Foreground="{StaticResource NyKurMutedTextBrush}"
+                                            MaxLines="1"
+                                            Text="{x:Bind ViewModel.NotificationMessage, Mode=OneWay}"
+                                            TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+
                                     <TextBlock
-                                        FontSize="11"
-                                        Foreground="{StaticResource NyKurMutedTextBrush}"
-                                        Text="Primary display · Procedural motion" />
+                                        Grid.Column="2"
+                                        Style="{StaticResource NyKurCaptionStyle}"
+                                        Text="{x:Bind ViewModel.NotificationTime, Mode=OneWay}" />
+                                </Grid>
+                            </Border>
+
+                            <Grid Margin="5,1,5,0">
+                                <StackPanel Orientation="Horizontal" Spacing="7">
                                     <Ellipse
                                         x:Name="HomeStatusDot"
                                         Width="5"
                                         Height="5"
-                                        HorizontalAlignment="Right"
                                         VerticalAlignment="Center"
                                         Fill="{StaticResource NyKurAccentBrush}"
-                                        Opacity="0.72" />
-                                </Grid>
-                            </StackPanel>
-
-                            <StackPanel
-                                x:Name="SettingsPane"
-                                Visibility="Collapsed"
-                                Spacing="14">
-                                <Grid Margin="2,0,2,2">
-                                    <Button
-                                        AutomationProperties.Name="Back"
-                                        Click="OnSettingsBackClicked"
-                                        Content="&#xE72B;"
-                                        Style="{StaticResource NyKurIconButtonStyle}" />
-                                    <StackPanel Margin="52,1,0,0" VerticalAlignment="Center">
-                                        <TextBlock
-                                            FontSize="17"
-                                            FontWeight="SemiBold"
-                                            Foreground="{StaticResource NyKurTextBrush}"
-                                            Text="Settings" />
-                                        <TextBlock
-                                            Margin="0,2,0,0"
-                                            FontSize="11"
-                                            Foreground="{StaticResource NyKurMutedTextBrush}"
-                                            Text="Quiet defaults, only useful controls" />
-                                    </StackPanel>
-                                </Grid>
-
-                                <Border
-                                    Background="{StaticResource NyKurCardBrush}"
-                                    CornerRadius="18"
-                                    Padding="16">
-                                    <StackPanel Spacing="12">
-                                        <TextBlock Style="{StaticResource NyKurSectionLabelStyle}" Text="GENERAL" />
-                                        <ToggleSwitch
-                                            x:Name="StartupToggle"
-                                            Header="Launch with Windows"
-                                            Toggled="OnStartupToggled" />
-                                        <Grid>
-                                            <TextBlock
-                                                VerticalAlignment="Center"
-                                                Foreground="{StaticResource NyKurTextBrush}"
-                                                Text="Screen edge" />
-                                            <ComboBox
-                                                x:Name="EdgeSideCombo"
-                                                MinWidth="118"
-                                                HorizontalAlignment="Right"
-                                                SelectionChanged="OnEdgeSideChanged">
-                                                <ComboBoxItem Content="Left" Tag="Left" />
-                                                <ComboBoxItem Content="Right" Tag="Right" />
-                                            </ComboBox>
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-
-                                <Border
-                                    Background="{StaticResource NyKurCardBrush}"
-                                    CornerRadius="18"
-                                    Padding="16">
-                                    <StackPanel Spacing="12">
-                                        <TextBlock Style="{StaticResource NyKurSectionLabelStyle}" Text="APPEARANCE" />
-                                        <Grid>
-                                            <TextBlock
-                                                VerticalAlignment="Center"
-                                                Foreground="{StaticResource NyKurTextBrush}"
-                                                Text="Accent" />
-                                            <ComboBox
-                                                x:Name="AccentModeCombo"
-                                                MinWidth="132"
-                                                HorizontalAlignment="Right"
-                                                SelectionChanged="OnAccentModeChanged">
-                                                <ComboBoxItem Content="Automatic" Tag="Automatic" />
-                                                <ComboBoxItem Content="Manual" Tag="Manual" />
-                                            </ComboBox>
-                                        </Grid>
-                                        <Border
-                                            x:Name="ManualAccentContainer"
-                                            Background="#10000000"
-                                            CornerRadius="14"
-                                            Padding="8">
-                                            <ColorPicker
-                                                x:Name="ManualAccentPicker"
-                                                HorizontalAlignment="Stretch"
-                                                ColorChanged="OnManualAccentChanged"
-                                                IsAlphaEnabled="False"
-                                                IsAlphaSliderVisible="False"
-                                                IsAlphaTextInputVisible="False"
-                                                IsColorChannelTextInputVisible="False"
-                                                IsHexInputVisible="False"
-                                                IsMoreButtonVisible="False"
-                                                IsColorPreviewVisible="True" />
-                                        </Border>
-                                        <Grid>
-                                            <TextBlock
-                                                VerticalAlignment="Center"
-                                                Foreground="{StaticResource NyKurTextBrush}"
-                                                Text="Motion" />
-                                            <ComboBox
-                                                x:Name="AnimationIntensityCombo"
-                                                MinWidth="132"
-                                                HorizontalAlignment="Right"
-                                                SelectionChanged="OnAnimationIntensityChanged">
-                                                <ComboBoxItem Content="Quiet" Tag="Quiet" />
-                                                <ComboBoxItem Content="Balanced" Tag="Balanced" />
-                                                <ComboBoxItem Content="Expressive" Tag="Expressive" />
-                                            </ComboBox>
-                                        </Grid>
-                                    </StackPanel>
-                                </Border>
-
-                                <Border
-                                    Background="{StaticResource NyKurCardBrush}"
-                                    CornerRadius="18"
-                                    Padding="16">
-                                    <StackPanel Spacing="12">
-                                        <TextBlock Style="{StaticResource NyKurSectionLabelStyle}" Text="MODULES" />
-                                        <ToggleSwitch
-                                            x:Name="MediaToggle"
-                                            Header="Windows media"
-                                            Toggled="OnMediaToggled" />
-                                        <ToggleSwitch
-                                            x:Name="NotificationToggle"
-                                            Header="Notifications"
-                                            Toggled="OnNotificationToggled" />
-                                        <TextBlock
-                                            FontSize="11"
-                                            Foreground="{StaticResource NyKurMutedTextBrush}"
-                                            Text="{x:Bind ViewModel.NotificationAccessLabel, Mode=OneWay}" />
-                                        <Button
-                                            x:Name="NotificationAccessButton"
-                                            HorizontalAlignment="Left"
-                                            Click="OnNotificationAccessClicked"
-                                            Content="Request notification access" />
-                                        <Border
-                                            Background="{StaticResource NyKurAccentFaintBrush}"
-                                            CornerRadius="12"
-                                            Padding="12">
-                                            <StackPanel Spacing="7">
-                                                <TextBlock
-                                                    FontSize="12"
-                                                    FontWeight="SemiBold"
-                                                    Foreground="{StaticResource NyKurTextBrush}"
-                                                    Text="Avoid duplicate banners" />
-                                                <TextBlock
-                                                    FontSize="11"
-                                                    Foreground="{StaticResource NyKurMutedTextBrush}"
-                                                    Text="Keep notifications enabled, then turn off Windows banners (and sound if desired) for each app NyKur Edge should present. Windows does not expose a supported pre-banner interception API."
-                                                    TextWrapping="Wrap" />
-                                                <Button
-                                                    HorizontalAlignment="Left"
-                                                    Click="OnOpenNotificationSettingsClicked"
-                                                    Content="Open Windows notification settings" />
-                                            </StackPanel>
-                                        </Border>
-                                        <ToggleSwitch
-                                            x:Name="ClockToggle"
-                                            Header="Clock glance"
-                                            Toggled="OnClockToggled" />
-                                        <Grid>
-                                            <TextBlock
-                                                VerticalAlignment="Center"
-                                                Foreground="{StaticResource NyKurTextBrush}"
-                                                Text="Clock interval" />
-                                            <ComboBox
-                                                x:Name="ClockIntervalCombo"
-                                                MinWidth="132"
-                                                HorizontalAlignment="Right"
-                                                SelectionChanged="OnClockIntervalChanged">
-                                                <ComboBoxItem Content="15 minutes" Tag="15" />
-                                                <ComboBoxItem Content="30 minutes" Tag="30" />
-                                                <ComboBoxItem Content="Hourly" Tag="60" />
-                                                <ComboBoxItem Content="2 hours" Tag="120" />
-                                            </ComboBox>
-                                        </Grid>
-                                        <Button
-                                            HorizontalAlignment="Left"
-                                            Click="OnPreviewClockClicked"
-                                            Content="Preview clock glance" />
-                                    </StackPanel>
-                                </Border>
-
-                                <Button
-                                    HorizontalAlignment="Left"
-                                    Click="OnExitClicked"
-                                    Content="Exit NyKur Edge"
-                                    Foreground="#FFD9A0A8" />
-                            </StackPanel>
-                        </Grid>
-                    </ScrollViewer>
-
-                    <Border
-                        x:Name="GlanceOverlay"
-                        Background="#FA14161A"
-                        CornerRadius="20"
-                        IsHitTestVisible="False"
-                        Opacity="0">
-                        <StackPanel
-                            HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            Spacing="7">
-                            <TextBlock
-                                HorizontalAlignment="Center"
-                                Style="{StaticResource NyKurSectionLabelStyle}"
-                                Text="{x:Bind ViewModel.GlanceEyebrow, Mode=OneWay}" />
-                            <TextBlock
-                                HorizontalAlignment="Center"
-                                FontFamily="Segoe UI Variable Display"
-                                FontSize="54"
-                                FontWeight="SemiLight"
-                                Foreground="{StaticResource NyKurTextBrush}"
-                                Text="{x:Bind ViewModel.GlancePrimary, Mode=OneWay}" />
-                            <Rectangle
-                                Width="34"
-                                Height="2"
-                                Margin="0,2"
-                                Fill="{StaticResource NyKurAccentBrush}"
-                                RadiusX="1"
-                                RadiusY="1" />
-                            <TextBlock
-                                HorizontalAlignment="Center"
-                                FontSize="13"
-                                Foreground="{StaticResource NyKurMutedTextBrush}"
-                                Text="{x:Bind ViewModel.GlanceSecondary, Mode=OneWay}" />
+                                        Opacity="0.64" />
+                                    <TextBlock
+                                        Style="{StaticResource NyKurCaptionStyle}"
+                                        Text="Primary display · Ready" />
+                                </StackPanel>
+                                <TextBlock
+                                    HorizontalAlignment="Right"
+                                    Style="{StaticResource NyKurCaptionStyle}"
+                                    Text="local" />
+                            </Grid>
                         </StackPanel>
-                    </Border>
+
+                        <StackPanel
+                            x:Name="SettingsPane"
+                            Spacing="12"
+                            Visibility="Collapsed">
+                            <Grid Margin="0,0,0,5">
+                                <Button
+                                    AutomationProperties.Name="Back"
+                                    Click="OnSettingsBackClicked"
+                                    Content="&#xE72B;"
+                                    Style="{StaticResource NyKurIconButtonStyle}" />
+                                <StackPanel Margin="52,1,0,0" VerticalAlignment="Center">
+                                    <TextBlock Style="{StaticResource NyKurBodyTitleStyle}" Text="Settings" />
+                                    <TextBlock
+                                        Margin="0,2,0,0"
+                                        Style="{StaticResource NyKurCaptionStyle}"
+                                        Text="Only the controls that matter" />
+                                </StackPanel>
+                            </Grid>
+
+                            <Border Style="{StaticResource NyKurGlassSectionStyle}">
+                                <StackPanel Spacing="12">
+                                    <TextBlock Style="{StaticResource NyKurSectionLabelStyle}" Text="GENERAL" />
+                                    <ToggleSwitch
+                                        x:Name="StartupToggle"
+                                        Header="Launch with Windows"
+                                        Toggled="OnStartupToggled" />
+                                    <Grid>
+                                        <TextBlock
+                                            VerticalAlignment="Center"
+                                            Foreground="{StaticResource NyKurTextBrush}"
+                                            Text="Screen edge" />
+                                        <ComboBox
+                                            x:Name="EdgeSideCombo"
+                                            MinWidth="118"
+                                            HorizontalAlignment="Right"
+                                            SelectionChanged="OnEdgeSideChanged">
+                                            <ComboBoxItem Content="Left" Tag="Left" />
+                                            <ComboBoxItem Content="Right" Tag="Right" />
+                                        </ComboBox>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource NyKurGlassSectionStyle}">
+                                <StackPanel Spacing="12">
+                                    <TextBlock Style="{StaticResource NyKurSectionLabelStyle}" Text="APPEARANCE" />
+                                    <Grid>
+                                        <TextBlock
+                                            VerticalAlignment="Center"
+                                            Foreground="{StaticResource NyKurTextBrush}"
+                                            Text="Accent" />
+                                        <ComboBox
+                                            x:Name="AccentModeCombo"
+                                            MinWidth="132"
+                                            HorizontalAlignment="Right"
+                                            SelectionChanged="OnAccentModeChanged">
+                                            <ComboBoxItem Content="Automatic" Tag="Automatic" />
+                                            <ComboBoxItem Content="Manual" Tag="Manual" />
+                                        </ComboBox>
+                                    </Grid>
+                                    <Border
+                                        x:Name="ManualAccentContainer"
+                                        Background="#16000000"
+                                        BorderBrush="{StaticResource NyKurSoftHairlineBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="16"
+                                        Padding="8">
+                                        <ColorPicker
+                                            x:Name="ManualAccentPicker"
+                                            HorizontalAlignment="Stretch"
+                                            ColorChanged="OnManualAccentChanged"
+                                            IsAlphaEnabled="False"
+                                            IsAlphaSliderVisible="False"
+                                            IsAlphaTextInputVisible="False"
+                                            IsColorChannelTextInputVisible="False"
+                                            IsHexInputVisible="False"
+                                            IsMoreButtonVisible="False"
+                                            IsColorPreviewVisible="True" />
+                                    </Border>
+                                    <Grid>
+                                        <TextBlock
+                                            VerticalAlignment="Center"
+                                            Foreground="{StaticResource NyKurTextBrush}"
+                                            Text="Motion" />
+                                        <ComboBox
+                                            x:Name="AnimationIntensityCombo"
+                                            MinWidth="132"
+                                            HorizontalAlignment="Right"
+                                            SelectionChanged="OnAnimationIntensityChanged">
+                                            <ComboBoxItem Content="Quiet" Tag="Quiet" />
+                                            <ComboBoxItem Content="Balanced" Tag="Balanced" />
+                                            <ComboBoxItem Content="Expressive" Tag="Expressive" />
+                                        </ComboBox>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource NyKurGlassSectionStyle}">
+                                <StackPanel Spacing="12">
+                                    <TextBlock Style="{StaticResource NyKurSectionLabelStyle}" Text="MODULES" />
+                                    <ToggleSwitch
+                                        x:Name="MediaToggle"
+                                        Header="Windows media"
+                                        Toggled="OnMediaToggled" />
+                                    <ToggleSwitch
+                                        x:Name="NotificationToggle"
+                                        Header="Notifications"
+                                        Toggled="OnNotificationToggled" />
+                                    <TextBlock
+                                        Style="{StaticResource NyKurCaptionStyle}"
+                                        Text="{x:Bind ViewModel.NotificationAccessLabel, Mode=OneWay}" />
+                                    <Button
+                                        x:Name="NotificationAccessButton"
+                                        HorizontalAlignment="Left"
+                                        Click="OnNotificationAccessClicked"
+                                        Content="Request notification access"
+                                        Style="{StaticResource NyKurTextButtonStyle}" />
+                                    <Border
+                                        Background="{StaticResource NyKurAccentFaintBrush}"
+                                        BorderBrush="{StaticResource NyKurSoftHairlineBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="15"
+                                        Padding="13">
+                                        <StackPanel Spacing="7">
+                                            <TextBlock
+                                                FontSize="12"
+                                                FontWeight="SemiBold"
+                                                Foreground="{StaticResource NyKurTextBrush}"
+                                                Text="Avoid duplicate banners" />
+                                            <TextBlock
+                                                Style="{StaticResource NyKurCaptionStyle}"
+                                                Text="Keep notifications enabled, then turn off Windows banners (and sound if desired) for each app NyKur Edge should present. Windows does not expose a supported pre-banner interception API."
+                                                TextWrapping="Wrap" />
+                                            <Button
+                                                HorizontalAlignment="Left"
+                                                Click="OnOpenNotificationSettingsClicked"
+                                                Content="Open Windows settings"
+                                                Style="{StaticResource NyKurTextButtonStyle}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <ToggleSwitch
+                                        x:Name="ClockToggle"
+                                        Header="Clock glance"
+                                        Toggled="OnClockToggled" />
+                                    <Grid>
+                                        <TextBlock
+                                            VerticalAlignment="Center"
+                                            Foreground="{StaticResource NyKurTextBrush}"
+                                            Text="Clock interval" />
+                                        <ComboBox
+                                            x:Name="ClockIntervalCombo"
+                                            MinWidth="132"
+                                            HorizontalAlignment="Right"
+                                            SelectionChanged="OnClockIntervalChanged">
+                                            <ComboBoxItem Content="15 minutes" Tag="15" />
+                                            <ComboBoxItem Content="30 minutes" Tag="30" />
+                                            <ComboBoxItem Content="Hourly" Tag="60" />
+                                            <ComboBoxItem Content="2 hours" Tag="120" />
+                                        </ComboBox>
+                                    </Grid>
+                                    <Button
+                                        HorizontalAlignment="Left"
+                                        Click="OnPreviewClockClicked"
+                                        Content="Preview clock glance"
+                                        Style="{StaticResource NyKurTextButtonStyle}" />
+                                </StackPanel>
+                            </Border>
+
+                            <Button
+                                HorizontalAlignment="Left"
+                                Click="OnExitClicked"
+                                Content="Exit NyKur Edge"
+                                Foreground="#FFD9A0A8"
+                                Style="{StaticResource NyKurTextButtonStyle}" />
+                        </StackPanel>
+                    </Grid>
+                </ScrollViewer>
+
+                <Grid
+                    x:Name="GlanceOverlay"
+                    Background="#E40D1015"
+                    IsHitTestVisible="False"
+                    Opacity="0">
+                    <Ellipse
+                        Width="250"
+                        Height="250"
+                        Fill="{StaticResource NyKurAccentFaintBrush}"
+                        Opacity="0.34" />
+                    <Ellipse
+                        Width="176"
+                        Height="176"
+                        Fill="#16000000"
+                        Stroke="{StaticResource NyKurSoftHairlineBrush}"
+                        StrokeThickness="1" />
+                    <StackPanel
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="8">
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            Style="{StaticResource NyKurSectionLabelStyle}"
+                            Text="{x:Bind ViewModel.GlanceEyebrow, Mode=OneWay}" />
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            FontFamily="Segoe UI Variable Display"
+                            FontSize="58"
+                            FontWeight="SemiLight"
+                            Foreground="{StaticResource NyKurTextBrush}"
+                            Text="{x:Bind ViewModel.GlancePrimary, Mode=OneWay}" />
+                        <Border
+                            Width="28"
+                            Height="2"
+                            Margin="0,1"
+                            Background="{StaticResource NyKurAccentBrush}"
+                            CornerRadius="1"
+                            Opacity="0.72" />
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            FontSize="13"
+                            Foreground="{StaticResource NyKurMutedTextBrush}"
+                            Text="{x:Bind ViewModel.GlanceSecondary, Mode=OneWay}" />
+                    </StackPanel>
                 </Grid>
+            </Grid>
 
             <Grid
                 x:Name="EdgeSurface"
@@ -530,47 +594,47 @@
                 <Border
                     x:Name="EdgeAnchor"
                     Width="1"
-                    Margin="0,2"
+                    Margin="0,3"
                     HorizontalAlignment="Right"
                     Background="{StaticResource NyKurGlassTraceBrush}"
-                    Opacity="0.24" />
+                    Opacity="0.12" />
 
                 <Path
                     x:Name="WaveBloom"
                     IsHitTestVisible="False"
-                    Opacity="0.30"
-                    Stroke="{StaticResource NyKurAccentFaintBrush}"
-                    StrokeEndLineCap="Round"
-                    StrokeLineJoin="Round"
-                    StrokeStartLineCap="Round"
-                    StrokeThickness="8" />
-                <Path
-                    x:Name="WaveOuterTrace"
-                    IsHitTestVisible="False"
-                    Opacity="0.46"
+                    Opacity="0.17"
                     Stroke="{StaticResource NyKurAccentSoftBrush}"
                     StrokeEndLineCap="Round"
                     StrokeLineJoin="Round"
                     StrokeStartLineCap="Round"
-                    StrokeThickness="0.9" />
+                    StrokeThickness="10" />
+                <Path
+                    x:Name="WaveOuterTrace"
+                    IsHitTestVisible="False"
+                    Opacity="0.50"
+                    Stroke="{StaticResource NyKurAccentSoftBrush}"
+                    StrokeEndLineCap="Round"
+                    StrokeLineJoin="Round"
+                    StrokeStartLineCap="Round"
+                    StrokeThickness="0.82" />
                 <Path
                     x:Name="WaveSecondaryTrace"
                     IsHitTestVisible="False"
-                    Opacity="0.28"
+                    Opacity="0.38"
                     Stroke="{StaticResource NyKurGlassTraceBrush}"
                     StrokeEndLineCap="Round"
                     StrokeLineJoin="Round"
                     StrokeStartLineCap="Round"
-                    StrokeThickness="0.72" />
+                    StrokeThickness="0.66" />
                 <Path
                     x:Name="WaveCoreTrace"
                     IsHitTestVisible="False"
-                    Opacity="0.72"
+                    Opacity="0.64"
                     Stroke="{StaticResource NyKurAccentBrush}"
                     StrokeEndLineCap="Round"
                     StrokeLineJoin="Round"
                     StrokeStartLineCap="Round"
-                    StrokeThickness="1.05" />
+                    StrokeThickness="0.92" />
 
                 <Ellipse
                     x:Name="IncomingNotificationPulse"
@@ -585,101 +649,115 @@
 
                 <Grid
                     x:Name="EdgeBubbleRoot"
-                    Width="56"
-                    Height="56"
-                    Margin="0,0,-28,0"
+                    Width="64"
+                    Height="72"
+                    Margin="0,0,-32,0"
                     HorizontalAlignment="Right"
                     VerticalAlignment="Center"
                     IsHitTestVisible="False">
                     <Ellipse
                         x:Name="NotificationHaloPrimary"
-                        Width="24"
-                        Height="24"
+                        Width="30"
+                        Height="34"
                         Fill="{StaticResource NyKurAccentFaintBrush}"
                         Opacity="0"
                         Stroke="{StaticResource NyKurAccentSoftBrush}"
                         StrokeThickness="0.8" />
                     <Ellipse
                         x:Name="NotificationHaloSecondary"
-                        Width="24"
-                        Height="24"
+                        Width="30"
+                        Height="34"
                         Fill="Transparent"
                         Opacity="0"
                         Stroke="{StaticResource NyKurGlassTraceBrush}"
                         StrokeThickness="0.7" />
                     <Ellipse
                         x:Name="UnreadRing"
-                        Width="29"
-                        Height="29"
+                        Width="34"
+                        Height="47"
                         Opacity="0"
                         Stroke="{StaticResource NyKurAccentBrush}"
                         StrokeThickness="0.65" />
                     <Ellipse
                         x:Name="LauncherRing"
-                        Width="27"
-                        Height="27"
+                        Width="32"
+                        Height="45"
                         Opacity="0"
                         Stroke="{StaticResource NyKurGlassTraceBrush}"
                         StrokeThickness="0.7" />
 
                     <Grid
                         x:Name="BubbleBreathHost"
-                        Width="24"
-                        Height="24">
+                        Width="28"
+                        Height="40">
                         <Grid
-                            x:Name="BubbleBody"
-                            Width="24"
-                            Height="24">
-                            <Ellipse
-                                Width="34"
-                                Height="34"
-                                Fill="{StaticResource NyKurAccentFaintBrush}"
-                                Opacity="0.52" />
-                            <Ellipse
+                            x:Name="BubbleInteractionHost"
+                            Width="28"
+                            Height="40">
+                            <Grid
+                                x:Name="BubbleBody"
                                 Width="28"
-                                Height="28"
-                                Fill="#28111720"
-                                Stroke="{StaticResource NyKurAccentSoftBrush}"
-                                StrokeThickness="0.55" />
-                            <Ellipse
-                                Width="24"
-                                Height="24"
-                                Fill="#D2181D24"
-                                Stroke="#68FFFFFF"
-                                StrokeThickness="0.72" />
-                            <Ellipse
-                                Width="21"
-                                Height="21"
-                                Fill="{StaticResource NyKurAccentSoftBrush}"
-                                Opacity="0.38" />
-                            <Ellipse
-                                x:Name="BubbleSheen"
-                                Width="14"
-                                Height="8"
-                                Margin="2,3,0,0"
-                                HorizontalAlignment="Left"
-                                VerticalAlignment="Top"
-                                Fill="#54FFFFFF"
-                                Opacity="0.68" />
-                            <Ellipse
-                                x:Name="BubbleSpark"
-                                Width="3"
-                                Height="3"
-                                Margin="5,5,0,0"
-                                HorizontalAlignment="Left"
-                                VerticalAlignment="Top"
-                                Fill="#C8FFFFFF" />
+                                Height="40">
+                                <Ellipse
+                                    Width="44"
+                                    Height="56"
+                                    Fill="{StaticResource NyKurAccentSoftBrush}"
+                                    Opacity="0.18" />
+                                <Ellipse
+                                    Width="35"
+                                    Height="48"
+                                    Fill="#3810151C"
+                                    Stroke="{StaticResource NyKurAccentSoftBrush}"
+                                    StrokeThickness="0.58" />
+                                <Ellipse
+                                    Width="29"
+                                    Height="41"
+                                    Fill="#D4141921"
+                                    Stroke="#94FFFFFF"
+                                    StrokeThickness="0.72" />
+                                <Ellipse
+                                    Width="26"
+                                    Height="38"
+                                    Fill="{StaticResource NyKurAccentSoftBrush}"
+                                    Opacity="0.40" />
+                                <Border
+                                    x:Name="BubbleRefraction"
+                                    Width="4"
+                                    Height="25"
+                                    Margin="3,0,0,0"
+                                    HorizontalAlignment="Left"
+                                    Background="#68FFFFFF"
+                                    CornerRadius="2"
+                                    Opacity="0.68" />
+                                <Ellipse
+                                    x:Name="BubbleSheen"
+                                    Width="15"
+                                    Height="7"
+                                    Margin="2,5,0,0"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Top"
+                                    Fill="#5CFFFFFF"
+                                    Opacity="0.62" />
+                                <Ellipse
+                                    x:Name="BubbleSpark"
+                                    Width="3"
+                                    Height="3"
+                                    Margin="5,7,0,0"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Top"
+                                    Fill="#D6FFFFFF" />
 
+                            </Grid>
                             <Grid
                                 x:Name="NotificationIconHost"
-                                Width="14"
-                                Height="14"
+                                Width="18"
+                                Height="22"
                                 Opacity="0">
                                 <FontIcon
-                                    FontSize="8"
-                                    Foreground="#E8FFFFFF"
+                                    FontSize="9"
+                                    Foreground="#F0FFFFFF"
                                     Glyph="&#xEA8F;" />
-                                <Border CornerRadius="7">
+                                <Border CornerRadius="8">
                                     <Image
                                         Source="{x:Bind ViewModel.NotificationIcon, Mode=OneWay}"
                                         Stretch="UniformToFill" />
@@ -691,9 +769,9 @@
 
                 <Button
                     x:Name="EdgeLauncherButton"
-                    Width="56"
-                    Height="76"
-                    Margin="0,0,-28,0"
+                    Width="64"
+                    Height="90"
+                    Margin="0,0,-32,0"
                     HorizontalAlignment="Right"
                     VerticalAlignment="Center"
                     AutomationProperties.Name="Open or pin NyKur Edge"

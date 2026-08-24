@@ -37,33 +37,33 @@ public sealed class EdgeWaveRenderer : IDisposable
         [
             new WaveLayer(
                 [bloom, outerTrace],
-                baseReach: 3.0,
-                centerReach: 39,
-                orbReach: 8,
-                expansionReach: 48,
+                baseReach: 2.7,
+                centerReach: 34,
+                orbReach: 9,
+                expansionReach: 50,
                 amplitude: 1.0,
                 phase: 1.05),
             new WaveLayer(
                 secondaryTrace,
-                baseReach: 2.2,
-                centerReach: 27,
-                orbReach: 6,
-                expansionReach: 34,
-                amplitude: 0.78,
+                baseReach: 1.6,
+                centerReach: 20,
+                orbReach: 5.5,
+                expansionReach: 30,
+                amplitude: 0.64,
                 phase: 2.55),
             new WaveLayer(
                 coreTrace,
-                baseReach: 1.6,
-                centerReach: 13,
-                orbReach: 4,
+                baseReach: 1.05,
+                centerReach: 11,
+                orbReach: 3.5,
                 expansionReach: 18,
-                amplitude: 0.54,
+                amplitude: 0.46,
                 phase: 3.35),
         ];
 
         _timer = DispatcherQueue.GetForCurrentThread().CreateTimer();
         _timer.IsRepeating = true;
-        _timer.Interval = TimeSpan.FromMilliseconds(200);
+        _timer.Interval = TimeSpan.FromMilliseconds(250);
         _timer.Tick += OnTick;
     }
 
@@ -136,8 +136,8 @@ public sealed class EdgeWaveRenderer : IDisposable
             notificationActive
                 ? 50
                 : _isPlaying
-                    ? 83
-                    : 200);
+                    ? 100
+                    : 250);
     }
 
     private void Render()
@@ -253,31 +253,58 @@ public sealed class EdgeWaveRenderer : IDisposable
             {
                 var normalizedY = index / (double)(KnotCount - 1);
                 const double verticalInset = 0.5;
-                var centerEnvelope = Gaussian(normalizedY, 0.5, 3.15);
-                var bubbleWaist = Gaussian(normalizedY, 0.5, 10.8);
-                var ambientEnvelope = 0.16 + (centerEnvelope * 0.84);
-
+                var centerEnvelope = Gaussian(normalizedY, 0.5, 3.85);
+                var orbChannel = Gaussian(normalizedY, 0.5, 17.5);
+                var orbShoulders =
+                    Gaussian(normalizedY, 0.44, 22.0) +
+                    Gaussian(normalizedY, 0.56, 22.0);
+                var ambientEnvelope = 0.07 + (centerEnvelope * 0.93);
+                var playingSpeed = IsSignalActive(signal) ? 0.28 : 0;
                 var breathing =
-                    Math.Sin((normalizedY * 18.2) + (seconds * (0.48 + signal.MidBand)) + _phase) +
-                    (Math.Sin((normalizedY * 31.5) - (seconds * (0.28 + signal.LowBand)) + (_phase * 0.7)) * 0.28) +
-                    (Math.Sin((normalizedY * 7.6) + (seconds * 0.18) - _phase) * 0.16);
+                    Math.Sin(
+                        (normalizedY * (12.4 + (signal.MidBand * 2.2))) +
+                        (seconds * (0.31 + signal.MidBand + playingSpeed)) +
+                        _phase) +
+                    (Math.Sin(
+                        (normalizedY * 24.8) -
+                        (seconds * (0.19 + (signal.LowBand * 0.58))) +
+                        (_phase * 0.73)) * 0.34) +
+                    (Math.Sin(
+                        (normalizedY * 6.1) +
+                        (seconds * 0.13) -
+                        (_phase * 0.45)) * 0.22) +
+                    (Math.Sin(
+                        (normalizedY * 39.0) +
+                        (seconds * (0.24 + signal.HighBand)) +
+                        (_phase * 1.18)) * signal.HighBand * 0.10);
 
-                var expandedEnvelope = Gaussian(normalizedY, 0.5, 2.25);
+                var expandedEnvelope = Gaussian(normalizedY, 0.5, 2.18);
+                var orbFlow = (orbShoulders * 0.90) - (orbChannel * 0.90);
+                var shapedCenterReach =
+                    _centerReach *
+                    centerEnvelope *
+                    (1 - (orbChannel * 0.28));
                 var baseReach = _baseReach +
-                                (_centerReach * centerEnvelope) +
-                                (_orbReach * bubbleWaist) +
-                                (_expansionReach * expansionProgress * expandedEnvelope);
+                                shapedCenterReach +
+                                (_orbReach * orbFlow) +
+                                (_expansionReach * Math.Pow(expansionProgress, 0.82) * expandedEnvelope);
                 var motionAmplitude =
-                    (0.8 + (signal.Energy * 5.2)) *
+                    (0.42 + (signal.Energy * 4.35)) *
                     _amplitude *
                     intensity *
                     ambientEnvelope;
+                var fluidDrift =
+                    Math.Sin((normalizedY * 4.6) + (seconds * 0.16) + (_phase * 0.6)) *
+                    _centerReach *
+                    0.035 *
+                    centerEnvelope;
                 var notificationDisplacement = GetNotificationDisplacement(normalizedY, notificationAge);
                 var displacement =
                     baseReach +
                     (breathing * motionAmplitude) +
+                    fluidDrift +
                     (notificationDisplacement * _amplitude);
-                displacement = Math.Clamp(displacement, 0, width - 3);
+                displacement = Math.Clamp(displacement, 0.65, width - 3);
 
                 _points[index] = new Point(
                     anchor + (direction * displacement),
@@ -342,5 +369,7 @@ public sealed class EdgeWaveRenderer : IDisposable
 
         private static double Gaussian(double value, double center, double sharpness) =>
             Math.Exp(-Math.Pow((value - center) * sharpness, 2));
+
+        private static bool IsSignalActive(EdgeMotionSignal signal) => signal.Energy > 0.34;
     }
 }

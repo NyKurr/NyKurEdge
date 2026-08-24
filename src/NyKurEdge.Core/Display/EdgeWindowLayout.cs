@@ -8,7 +8,7 @@ public static class EdgeWindowLayout
 {
     public const double CollapsedWidthDip = 82;
     public const double ExpandedWidthDip = 408;
-    public const double ExpandedShellHeightDip = 560;
+    public const double ExpandedShellHeightDip = 568;
 
     public static EdgeWindowBounds Calculate(
         DisplayRect workArea,

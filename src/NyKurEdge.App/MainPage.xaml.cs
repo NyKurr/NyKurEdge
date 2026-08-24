@@ -83,6 +83,7 @@ public sealed partial class MainPage : Page, IDisposable
         _bubbleController = new EdgeBubbleController(
             EdgeSurface,
             BubbleBreathHost,
+            BubbleInteractionHost,
             BubbleBody,
             NotificationIconHost,
             IncomingNotificationPulse,
@@ -111,6 +112,7 @@ public sealed partial class MainPage : Page, IDisposable
         RegisterVisualTestAccelerator(VirtualKey.F9);
         RegisterVisualTestAccelerator(VirtualKey.F10);
         RegisterVisualTestAccelerator(VirtualKey.F11);
+        RegisterVisualTestAccelerator(VirtualKey.F12);
 #endif
         LoadSettingsControls();
         ApplyEdgeSide();
@@ -186,12 +188,14 @@ public sealed partial class MainPage : Page, IDisposable
     private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
     {
         _collapseTimer.Stop();
+        _bubbleController.SetPointerOver(true);
         _stateMachine.PointerEntered();
         _windowController.SetExpanded(true);
     }
 
     private void OnPointerExited(object sender, PointerRoutedEventArgs e)
     {
+        _bubbleController.SetPointerOver(false);
         _stateMachine.PointerExited(DateTimeOffset.Now);
         if (!_settingsOpen && !_stateMachine.State.IsPinnedOpen)
         {
@@ -222,18 +226,22 @@ public sealed partial class MainPage : Page, IDisposable
             PanelContent.Visibility = Visibility.Visible;
         }
 
-        var shellProgress = Math.Clamp((progress - 0.015) / 0.78, 0, 1);
-        ExpandedShellTransform.ScaleX = 0.08 + (shellProgress * 0.92);
-        ExpandedShellTransform.ScaleY = 0.16 + (Math.Pow(shellProgress, 0.62) * 0.84);
-        ExpandedSurface.Opacity = Math.Clamp((progress - 0.035) / 0.48, 0, 1);
+        var shellProgress = SmootherStep(Math.Clamp((progress - 0.01) / 0.82, 0, 1));
+        var horizontalBloom = 1 - Math.Pow(1 - shellProgress, 2.4);
+        ExpandedShellTransform.ScaleX = 0.04 + (horizontalBloom * 0.96);
+        ExpandedShellTransform.ScaleY = 0.12 + (Math.Pow(shellProgress, 0.58) * 0.88);
+        ExpandedSurface.Opacity = SmootherStep(Math.Clamp((progress - 0.025) / 0.50, 0, 1));
+        BloomAccentAtmosphere.Opacity = 0.12 + (shellProgress * 0.22);
+        BloomLumen.Opacity = 0.24 + (shellProgress * 0.48);
+        BloomSeam.Opacity = 0.18 + (shellProgress * 0.20);
 
-        var contentProgress = Math.Clamp((progress - 0.22) / 0.62, 0, 1);
+        var contentProgress = SmootherStep(Math.Clamp((progress - 0.24) / 0.60, 0, 1));
         PanelContent.Opacity = contentProgress;
         PanelContent.IsHitTestVisible = contentProgress >= 0.98;
         var direction = EffectiveSide == EdgeSide.Right ? 1 : -1;
-        PanelTransform.TranslateX = direction * (1 - contentProgress) * 18;
-        PanelTransform.ScaleX = 0.97 + (contentProgress * 0.03);
-        PanelTransform.ScaleY = 0.97 + (contentProgress * 0.03);
+        PanelTransform.TranslateX = direction * (1 - contentProgress) * 24;
+        PanelTransform.ScaleX = 0.955 + (contentProgress * 0.045);
+        PanelTransform.ScaleY = 0.955 + (contentProgress * 0.045);
 
         if (progress <= 0.001)
         {
@@ -560,41 +568,48 @@ public sealed partial class MainPage : Page, IDisposable
 
         if (side == EdgeSide.Right)
         {
-            ExpandedSurface.CornerRadius = new CornerRadius(72, 0, 0, 72);
             ExpandedSurface.RenderTransformOrigin = new Windows.Foundation.Point(1, 0.5);
-            PanelContent.Margin = new Thickness(50, 18, 34, 18);
+            ExpandedShellMirror.ScaleX = 1;
+            PanelContent.Margin = new Thickness(60, 30, 32, 30);
             EdgeSurface.HorizontalAlignment = HorizontalAlignment.Right;
             EdgeAnchor.HorizontalAlignment = HorizontalAlignment.Right;
             EdgeBubbleRoot.HorizontalAlignment = HorizontalAlignment.Right;
-            EdgeBubbleRoot.Margin = new Thickness(0, 0, -28, 0);
+            EdgeBubbleRoot.Margin = new Thickness(0, 0, -32, 0);
             EdgeLauncherButton.HorizontalAlignment = HorizontalAlignment.Right;
-            EdgeLauncherButton.Margin = new Thickness(0, 0, -28, 0);
+            EdgeLauncherButton.Margin = new Thickness(0, 0, -32, 0);
             IncomingNotificationPulse.HorizontalAlignment = HorizontalAlignment.Right;
             IncomingNotificationPulse.Margin = new Thickness(0, 64, 3, 0);
+            BubbleRefraction.HorizontalAlignment = HorizontalAlignment.Left;
+            BubbleRefraction.Margin = new Thickness(3, 0, 0, 0);
             BubbleSheen.HorizontalAlignment = HorizontalAlignment.Left;
-            BubbleSheen.Margin = new Thickness(2, 3, 0, 0);
+            BubbleSheen.Margin = new Thickness(2, 5, 0, 0);
             BubbleSpark.HorizontalAlignment = HorizontalAlignment.Left;
-            BubbleSpark.Margin = new Thickness(5, 5, 0, 0);
+            BubbleSpark.Margin = new Thickness(5, 7, 0, 0);
         }
         else
         {
-            ExpandedSurface.CornerRadius = new CornerRadius(0, 72, 72, 0);
             ExpandedSurface.RenderTransformOrigin = new Windows.Foundation.Point(0, 0.5);
-            PanelContent.Margin = new Thickness(34, 18, 50, 18);
+            ExpandedShellMirror.ScaleX = -1;
+            PanelContent.Margin = new Thickness(32, 30, 60, 30);
             EdgeSurface.HorizontalAlignment = HorizontalAlignment.Left;
             EdgeAnchor.HorizontalAlignment = HorizontalAlignment.Left;
             EdgeBubbleRoot.HorizontalAlignment = HorizontalAlignment.Left;
-            EdgeBubbleRoot.Margin = new Thickness(-28, 0, 0, 0);
+            EdgeBubbleRoot.Margin = new Thickness(-32, 0, 0, 0);
             EdgeLauncherButton.HorizontalAlignment = HorizontalAlignment.Left;
-            EdgeLauncherButton.Margin = new Thickness(-28, 0, 0, 0);
+            EdgeLauncherButton.Margin = new Thickness(-32, 0, 0, 0);
             IncomingNotificationPulse.HorizontalAlignment = HorizontalAlignment.Left;
             IncomingNotificationPulse.Margin = new Thickness(3, 64, 0, 0);
+            BubbleRefraction.HorizontalAlignment = HorizontalAlignment.Right;
+            BubbleRefraction.Margin = new Thickness(0, 0, 3, 0);
             BubbleSheen.HorizontalAlignment = HorizontalAlignment.Right;
-            BubbleSheen.Margin = new Thickness(0, 3, 2, 0);
+            BubbleSheen.Margin = new Thickness(0, 5, 2, 0);
             BubbleSpark.HorizontalAlignment = HorizontalAlignment.Right;
-            BubbleSpark.Margin = new Thickness(0, 5, 5, 0);
+            BubbleSpark.Margin = new Thickness(0, 7, 5, 0);
         }
     }
+
+    private static double SmootherStep(double value) =>
+        value * value * value * ((value * ((value * 6) - 15)) + 10);
 
     private EdgeSide EffectiveSide
     {
@@ -659,6 +674,10 @@ public sealed partial class MainPage : Page, IDisposable
                 SetPinnedOpen(!_stateMachine.State.IsPinnedOpen);
                 _windowController.SetVisualInspectionStatus(
                     $"NyKur Edge QA · {(_stateMachine.State.IsPinnedOpen ? "launcher pinned" : "launcher released")}");
+                break;
+            case VirtualKey.F12:
+                _ = ObserveAsync(_services.Clock.PreviewAsync());
+                _windowController.SetVisualInspectionStatus("NyKur Edge QA · clock glance");
                 break;
             default:
                 return;
