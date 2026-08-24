@@ -13,6 +13,11 @@ namespace NyKurEdge.App.Presentation.Edge;
 public sealed class EdgeWindowController : IDisposable
 {
     private const int ExtendedStyleIndex = -20;
+    private const int WindowStyleIndex = -16;
+    private const long WindowStyleBorder = 0x00800000L;
+    private const long WindowStyleDialogFrame = 0x00400000L;
+    private const long WindowStyleCaption = 0x00C00000L;
+    private const long WindowStyleThickFrame = 0x00040000L;
     private const long ExtendedStyleAppWindow = 0x00040000L;
     private const long ExtendedStyleNoActivate = 0x08000000L;
     private const long ExtendedStyleToolWindow = 0x00000080L;
@@ -23,6 +28,10 @@ public sealed class EdgeWindowController : IDisposable
     private const uint SetWindowPositionShowWindow = 0x0040;
     private const int AlternateFillMode = 1;
     private const int RegionOr = 2;
+    private const int DwmWindowCornerPreference = 33;
+    private const int DwmBorderColor = 34;
+    private const uint DwmDoNotRound = 1;
+    private const uint DwmColorNone = 0xFFFFFFFE;
 
     private static readonly IntPtr TopMostWindow = new(-1);
 
@@ -79,6 +88,8 @@ public sealed class EdgeWindowController : IDisposable
 
         ConfigurePresenter();
         ApplyNativeWindowStyles(noActivate: true);
+        SuppressNativeFrame();
+        _window.Activated += OnWindowActivated;
         UpdateBounds(0);
 
         var dispatcher = DispatcherQueue.GetForCurrentThread();
@@ -105,6 +116,10 @@ public sealed class EdgeWindowController : IDisposable
             ApplyNativeWindowStyles(noActivate: false);
             _appWindow.Show(activateWindow: true);
             _window.Activate();
+            SuppressNativeFrame();
+            _ = DispatcherQueue.GetForCurrentThread().TryEnqueue(
+                DispatcherQueuePriority.Low,
+                SuppressNativeFrame);
             return;
         }
 
@@ -217,6 +232,7 @@ public sealed class EdgeWindowController : IDisposable
         _animationTimer.Tick -= OnAnimationTick;
         _displayPollTimer.Stop();
         _displayPollTimer.Tick -= OnDisplayPollTick;
+        _window.Activated -= OnWindowActivated;
     }
 
     private void ConfigurePresenter()
@@ -234,6 +250,13 @@ public sealed class EdgeWindowController : IDisposable
 
     private void ApplyNativeWindowStyles(bool noActivate)
     {
+        var windowStyle = GetWindowLongPointer(_windowHandle, WindowStyleIndex).ToInt64();
+        windowStyle &= ~(WindowStyleCaption |
+                         WindowStyleThickFrame |
+                         WindowStyleBorder |
+                         WindowStyleDialogFrame);
+        _ = SetWindowLongPointer(_windowHandle, WindowStyleIndex, new IntPtr(windowStyle));
+
         var style = GetWindowLongPointer(_windowHandle, ExtendedStyleIndex).ToInt64();
         if (_visualInspectionMode)
         {
@@ -263,7 +286,28 @@ public sealed class EdgeWindowController : IDisposable
             SetWindowPositionNoSize |
             SetWindowPositionNoActivate |
             SetWindowPositionFrameChanged);
+        SuppressNativeFrame();
     }
+
+    private void SuppressNativeFrame()
+    {
+        var cornerPreference = DwmDoNotRound;
+        _ = DwmSetWindowAttribute(
+            _windowHandle,
+            DwmWindowCornerPreference,
+            ref cornerPreference,
+            sizeof(uint));
+
+        var borderColor = DwmColorNone;
+        _ = DwmSetWindowAttribute(
+            _windowHandle,
+            DwmBorderColor,
+            ref borderColor,
+            sizeof(uint));
+    }
+
+    private void OnWindowActivated(object sender, WindowActivatedEventArgs args) =>
+        SuppressNativeFrame();
 
     private void OnAnimationTick(DispatcherQueueTimer sender, object args)
     {
@@ -342,34 +386,11 @@ public sealed class EdgeWindowController : IDisposable
             return;
         }
 
-        var anchorWidth = Math.Max(1, (int)Math.Round(Math.Min(thickness, 2.4) * scale));
-        var anchor = side == EdgeSide.Right
-            ? CreateRectRegion(width - anchorWidth, 0, width, height)
-            : CreateRectRegion(0, 0, anchorWidth, height);
-        UnionRegion(composite, anchor);
+        var fluidField = CreateFluidFieldRegion(width, height, side, scale);
+        UnionRegion(composite, fluidField);
 
-        foreach (var ribbon in new[]
-                 {
-                     (BaseReach: 2.7, CenterReach: 34.0, OrbReach: 9.0, Band: 20.0, Phase: 0.8),
-                     (BaseReach: 1.6, CenterReach: 20.0, OrbReach: 5.5, Band: 12.0, Phase: 2.3),
-                     (BaseReach: 1.05, CenterReach: 11.0, OrbReach: 3.5, Band: 8.0, Phase: 3.7),
-                 })
-        {
-            var waveRegion = CreateWaveRibbonRegion(
-                width,
-                height,
-                side,
-                scale,
-                ribbon.BaseReach,
-                ribbon.CenterReach,
-                ribbon.OrbReach,
-                ribbon.Band,
-                ribbon.Phase);
-            UnionRegion(composite, waveRegion);
-        }
-
-        var orbHalfWidth = Math.Max(1, (int)Math.Round(32 * scale));
-        var orbHalfHeight = Math.Max(1, (int)Math.Round(45 * scale));
+        var orbHalfWidth = Math.Max(1, (int)Math.Round(24 * scale));
+        var orbHalfHeight = Math.Max(1, (int)Math.Round(23 * scale));
         var centerY = height / 2;
         var orb = side == EdgeSide.Right
             ? CreateEllipticRegion(
@@ -404,52 +425,37 @@ public sealed class EdgeWindowController : IDisposable
         _regionProgressBucket = progressBucket;
     }
 
-    private static IntPtr CreateWaveRibbonRegion(
+    private static IntPtr CreateFluidFieldRegion(
         int width,
         int height,
         EdgeSide side,
-        double scale,
-        double baseReachDip,
-        double centerReachDip,
-        double orbReachDip,
-        double bandDip,
-        double phase)
+        double scale)
     {
-        const int profilePointCount = 65;
-        var points = new NativePoint[profilePointCount * 2];
+        const int profilePointCount = 73;
+        var points = new NativePoint[profilePointCount + 2];
+        var edgeX = side == EdgeSide.Right ? width : 0;
+        points[0] = new NativePoint(edgeX, 0);
+
         for (var index = 0; index < profilePointCount; index++)
         {
             var normalizedY = index / (double)(profilePointCount - 1);
-            var centerEnvelope = Gaussian(normalizedY, 0.5, 3.85);
-            var orbChannel = Gaussian(normalizedY, 0.5, 17.5);
+            var centerEnvelope = Gaussian(normalizedY, 0.5, 3.55);
+            var orbChannel = Gaussian(normalizedY, 0.5, 18.5);
             var orbShoulders =
-                Gaussian(normalizedY, 0.44, 22.0) +
-                Gaussian(normalizedY, 0.56, 22.0);
-            var orbFlow = (orbShoulders * 0.90) - (orbChannel * 0.90);
-            var shapedCenterReach =
-                centerReachDip *
-                centerEnvelope *
-                (1 - (orbChannel * 0.28));
-            var quietDrift =
-                (Math.Sin((normalizedY * 12.4) + phase) * 1.2) +
-                (Math.Sin((normalizedY * 24.8) + (phase * 0.73)) * 0.42);
-            var reachDip = baseReachDip +
-                           shapedCenterReach +
-                           (orbReachDip * orbFlow) +
-                           quietDrift;
-            var halfBand = bandDip / 2;
-            var outerReach = Math.Clamp((int)Math.Round((reachDip + halfBand) * scale), 1, width);
-            var innerReach = Math.Clamp((int)Math.Round((reachDip - halfBand) * scale), 0, width);
+                Gaussian(normalizedY, 0.43, 24.0) +
+                Gaussian(normalizedY, 0.57, 24.0);
+            var reachDip = 1.2 +
+                           (44 * centerEnvelope * (1 - (orbChannel * 0.72))) +
+                           (8.5 * orbShoulders);
+            var reach = Math.Clamp((int)Math.Round(reachDip * scale), 1, width);
             var y = Math.Clamp((int)Math.Round(normalizedY * (height - 1)), 0, height - 1);
 
-            points[index] = new NativePoint(
-                side == EdgeSide.Right ? width - outerReach : outerReach,
-                y);
-            points[(points.Length - 1) - index] = new NativePoint(
-                side == EdgeSide.Right ? width - innerReach : innerReach,
+            points[index + 1] = new NativePoint(
+                side == EdgeSide.Right ? width - reach : reach,
                 y);
         }
 
+        points[^1] = new NativePoint(edgeX, height);
         return CreatePolygonRegion(points, points.Length, AlternateFillMode);
     }
 
@@ -462,8 +468,8 @@ public sealed class EdgeWindowController : IDisposable
     {
         const int profilePointCount = 65;
         var eased = 1 - Math.Pow(1 - progress, 3);
-        var orbRadius = 32 * scale;
-        var targetHeight = Math.Min(height, EdgeWindowLayout.ExpandedShellHeightDip * scale);
+        var orbRadius = 22 * scale;
+        var targetHeight = Math.Min(height, EdgeWindowLayout.ExpandedHeightDip * scale * 0.86);
         var bloomHeight = orbRadius * 2 + ((targetHeight - (orbRadius * 2)) * Math.Pow(eased, 0.72));
         var halfHeight = bloomHeight / 2;
         var centerY = height / 2d;
@@ -595,6 +601,13 @@ public sealed class EdgeWindowController : IDisposable
         int width,
         int height,
         uint flags);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr windowHandle,
+        int attribute,
+        ref uint attributeValue,
+        int attributeSize);
 
     [DllImport("gdi32.dll", EntryPoint = "CreatePolygonRgn")]
     private static extern IntPtr CreatePolygonRegion(

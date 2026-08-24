@@ -23,8 +23,8 @@ public interface IEdgeMotionSource
 }
 
 /// <summary>
-/// Tasteful deterministic motion used until real audio analysis is connected.
-/// This source is intentionally procedural and is not audio-reactive.
+/// Deterministic low-frequency value noise used until real audio analysis is
+/// connected. This is explicitly procedural and is not audio-reactive.
 /// </summary>
 public sealed class ProceduralEdgeMotionSource : IEdgeMotionSource
 {
@@ -32,27 +32,38 @@ public sealed class ProceduralEdgeMotionSource : IEdgeMotionSource
     {
         if (!isPlaying)
         {
-            var breath = 0.5 + (Math.Sin(elapsedSeconds * 0.39) * 0.5);
-            var slowDrift = 0.5 + (Math.Sin((elapsedSeconds * 0.17) + 1.7) * 0.5);
             return new EdgeMotionSignal(
-                0.12 + (breath * 0.07) + (slowDrift * 0.025),
-                0.11 + (slowDrift * 0.055),
-                0.13 + (breath * 0.06),
-                0.08 + ((1 - breath) * 0.025));
+                0.12 + (Noise(elapsedSeconds * 0.16, 11) * 0.06),
+                0.10 + (Noise(elapsedSeconds * 0.11, 29) * 0.07),
+                0.11 + (Noise(elapsedSeconds * 0.19, 47) * 0.06),
+                0.06 + (Noise(elapsedSeconds * 0.23, 83) * 0.04));
         }
 
-        // This deliberately suggests rhythm without pretending to be sampled audio.
-        // The small incommensurate oscillators avoid an obvious repeating equalizer loop.
-        var pulse = 0.5 + (Math.Sin(
-            (elapsedSeconds * 1.72) +
-            (Math.Sin(elapsedSeconds * 0.31) * 0.24)) * 0.5);
-        var swell = 0.5 + (Math.Sin((elapsedSeconds * 0.73) + 0.8) * 0.5);
-        var shimmer = 0.5 + (Math.Sin((elapsedSeconds * 2.41) + 2.1) * 0.5);
-
         return new EdgeMotionSignal(
-            0.42 + (pulse * 0.18) + (swell * 0.09),
-            0.38 + (swell * 0.20) + (pulse * 0.08),
-            0.34 + (pulse * 0.17) + (shimmer * 0.10),
-            0.22 + (shimmer * 0.15)).Normalize();
+            0.42 + (Noise(elapsedSeconds * 0.78, 17) * 0.25),
+            0.34 + (Noise(elapsedSeconds * 0.52, 31) * 0.30),
+            0.31 + (Noise(elapsedSeconds * 0.94, 59) * 0.28),
+            0.18 + (Noise(elapsedSeconds * 1.31, 97) * 0.24)).Normalize();
     }
+
+    private static double Noise(double value, int seed)
+    {
+        var left = (int)Math.Floor(value);
+        var amount = value - left;
+        amount = amount * amount * amount * ((amount * ((amount * 6) - 15)) + 10);
+        return Lerp(Hash(left, seed), Hash(left + 1, seed), amount);
+    }
+
+    private static double Hash(int value, int seed)
+    {
+        unchecked
+        {
+            var hash = (uint)(value * 374761393 + seed * 668265263);
+            hash = (hash ^ (hash >> 13)) * 1274126177;
+            hash ^= hash >> 16;
+            return (hash & 0x00FFFFFF) / (double)0x00FFFFFF;
+        }
+    }
+
+    private static double Lerp(double from, double to, double amount) => from + ((to - from) * amount);
 }

@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="NyKurEdge.App.SettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Title="NyKur Edge Settings"
+    mc:Ignorable="d">
+    <Window.SystemBackdrop>
+        <MicaBackdrop Kind="BaseAlt" />
+    </Window.SystemBackdrop>
+
+    <Grid Background="#C90B0F15">
+        <ScrollViewer>
+            <StackPanel
+                Width="440"
+                Margin="40,34,40,44"
+                HorizontalAlignment="Center"
+                Spacing="26">
+                <Grid>
+                    <StackPanel>
+                        <TextBlock
+                            FontFamily="Segoe UI Variable Display"
+                            FontSize="28"
+                            FontWeight="SemiBold"
+                            Foreground="{StaticResource NyKurTextBrush}"
+                            Text="NyKur Edge" />
+                        <TextBlock
+                            Margin="0,3,0,0"
+                            FontSize="12"
+                            Foreground="{StaticResource NyKurMutedTextBrush}"
+                            Text="Ambient presence, configured quietly." />
+                    </StackPanel>
+                    <Border
+                        Width="34"
+                        Height="34"
+                        HorizontalAlignment="Right"
+                        Background="{StaticResource NyKurAccentFaintBrush}"
+                        BorderBrush="{StaticResource NyKurAccentSoftBrush}"
+                        BorderThickness="1"
+                        CornerRadius="17">
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            FontFamily="Segoe UI Variable Display"
+                            FontSize="11"
+                            FontWeight="SemiBold"
+                            Foreground="{StaticResource NyKurAccentBrush}"
+                            Text="NE" />
+                    </Border>
+                </Grid>
+
+                <StackPanel Spacing="14">
+                    <TextBlock Style="{StaticResource NyKurSectionLabelStyle}" Text="GENERAL" />
+                    <ToggleSwitch
+                        x:Name="StartupToggle"
+                        Header="Launch with Windows"
+                        Toggled="OnStartupToggled" />
+                    <ComboBox
+                        x:Name="EdgeSideCombo"
+                        Header="Monitor edge"
+                        SelectionChanged="OnEdgeSideChanged">
+                        <ComboBoxItem Content="Right" Tag="Right" />
+                        <ComboBoxItem Content="Left" Tag="Left" />
+                    </ComboBox>
+                </StackPanel>
+
+                <Rectangle Height="1" Fill="#12FFFFFF" />
+
+                <StackPanel Spacing="14">
+                    <TextBlock Style="{StaticResource NyKurSectionLabelStyle}" Text="APPEARANCE" />
+                    <ComboBox
+                        x:Name="AccentModeCombo"
+                        Header="Accent"
+                        SelectionChanged="OnAccentModeChanged">
+                        <ComboBoxItem Content="Automatic from artwork" Tag="Automatic" />
+                        <ComboBoxItem Content="Manual" Tag="Manual" />
+                    </ComboBox>
+                    <StackPanel x:Name="ManualAccentContainer" Spacing="8">
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{StaticResource NyKurMutedTextBrush}"
+                            Text="Manual accent color" />
+                        <ColorPicker
+                            x:Name="ManualAccentPicker"
+                            IsAlphaEnabled="False"
+                            IsColorChannelTextInputVisible="False"
+                            IsColorSpectrumVisible="True"
+                            IsHexInputVisible="True"
+                            IsMoreButtonVisible="False"
+                            ColorChanged="OnManualAccentChanged" />
+                    </StackPanel>
+                    <ComboBox
+                        x:Name="AnimationIntensityCombo"
+                        Header="Fluid character"
+                        SelectionChanged="OnAnimationIntensityChanged">
+                        <ComboBoxItem Content="Calm" Tag="Quiet" />
+                        <ComboBoxItem Content="Balanced" Tag="Balanced" />
+                        <ComboBoxItem Content="Expressive" Tag="Expressive" />
+                    </ComboBox>
+                </StackPanel>
+
+                <Rectangle Height="1" Fill="#12FFFFFF" />
+
+                <StackPanel Spacing="14">
+                    <TextBlock Style="{StaticResource NyKurSectionLabelStyle}" Text="MODULES" />
+                    <ToggleSwitch
+                        x:Name="MediaToggle"
+                        Header="Windows media sessions"
+                        Toggled="OnMediaToggled" />
+                    <ToggleSwitch
+                        x:Name="NotificationToggle"
+                        Header="Notification integration"
+                        Toggled="OnNotificationToggled" />
+                    <StackPanel Spacing="8">
+                        <TextBlock
+                            x:Name="NotificationAccessLabel"
+                            FontSize="12"
+                            Foreground="{StaticResource NyKurMutedTextBrush}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button
+                                x:Name="NotificationAccessButton"
+                                Click="OnNotificationAccessClicked"
+                                Content="Request access"
+                                Style="{StaticResource NyKurTextButtonStyle}" />
+                            <Button
+                                Click="OnOpenNotificationSettingsClicked"
+                                Content="Windows banner settings"
+                                Style="{StaticResource NyKurTextButtonStyle}" />
+                        </StackPanel>
+                        <TextBlock
+                            FontSize="11"
+                            Foreground="{StaticResource NyKurMutedTextBrush}"
+                            Text="Keep notifications enabled, then disable banners per app in Windows if NyKur Edge should be the visual surface."
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                    <ComboBox
+                        x:Name="NotificationPrivacyCombo"
+                        Header="Notification preview privacy"
+                        SelectionChanged="OnNotificationPrivacyChanged">
+                        <ComboBoxItem Content="Application only" Tag="AppOnly" />
+                        <ComboBoxItem Content="Sender and title" Tag="SenderAndTitle" />
+                        <ComboBoxItem Content="Full preview" Tag="FullPreview" />
+                    </ComboBox>
+                    <ToggleSwitch
+                        x:Name="ClockToggle"
+                        Header="Clock glance"
+                        Toggled="OnClockToggled" />
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ComboBox
+                            x:Name="ClockIntervalCombo"
+                            Header="Glance interval"
+                            SelectionChanged="OnClockIntervalChanged">
+                            <ComboBoxItem Content="15 minutes" Tag="15" />
+                            <ComboBoxItem Content="30 minutes" Tag="30" />
+                            <ComboBoxItem Content="1 hour" Tag="60" />
+                            <ComboBoxItem Content="2 hours" Tag="120" />
+                        </ComboBox>
+                        <Button
+                            Grid.Column="1"
+                            Margin="0,24,0,0"
+                            Click="OnPreviewClockClicked"
+                            Content="Preview"
+                            Style="{StaticResource NyKurTextButtonStyle}" />
+                    </Grid>
+                </StackPanel>
+
+                <Grid>
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontSize="10"
+                        CharacterSpacing="100"
+                        Foreground="#70FFFFFF"
+                        Text="NYKUR EDGE · LOCAL ONLY" />
+                    <Button
+                        HorizontalAlignment="Right"
+                        Click="OnExitClicked"
+                        Content="Exit NyKur Edge"
+                        Foreground="#D6F2A2A8"
+                        Style="{StaticResource NyKurTextButtonStyle}" />
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>
