@@ -62,15 +62,20 @@ sources during shutdown.
 - Settings interaction temporarily permits activation so keyboard/color controls
   remain usable.
 - Bounds are derived from the selected display's work area and effective DPI.
-- `EdgeWindowLayout` keeps the HWND at the primary work area's full height while
-  interpolating its inward reach from `82` to `408` DIPs. Taskbar-adjusted bounds
-  and effective DPI remain the source of physical placement.
-- The HWND receives a composite native region after XAML has loaded: three thin
-  full-height wave ribbons, a minimal edge seam, the visible half-orb, and—only
-  while opening—a centered capsule bloom. Painting and mouse input therefore
-  follow the visual phenomenon rather than the window rectangle.
-- Desktop acrylic is detached while collapsed, leaving no idle panel fill, and is
-  reattached only for the organic expanded shell.
+- `EdgeWindowLayout` sizes the collapsed field independently from the contextual
+  surface (`112 × 560` DIPs and `432 × 318` DIPs respectively). Taskbar-adjusted
+  work-area bounds and effective DPI remain the source of physical placement.
+- `NativeEdgeCompositionHost` owns a separate `WS_EX_NOREDIRECTIONBITMAP`
+  no-activation tool window for the collapsed phenomenon. A desktop composition
+  target supplies real per-pixel alpha, while `WM_NCHITTEST` admits input only on
+  the orb and nearby visible field.
+- The WinUI HWND has an empty collapsed region when the native host is available.
+  Its region grows only during the bloom or a notification event, then follows
+  the compact contextual shell. The large underlying bounds are therefore neither
+  painted nor interactive while idle.
+- Desktop acrylic belongs only to the expanded WinUI shell. The native idle host
+  stays transparent and fades while the shell establishes itself, preserving a
+  continuous orb-to-panel transition.
 - A four-second low-frequency display poll catches resolution, work-area, and DPI
   changes without an idle render loop.
 
@@ -81,18 +86,22 @@ no high-rate layout timer runs while idle.
 
 ## Edge rendering
 
-`EdgeWaveRenderer` owns four reusable XAML `PathGeometry` layers: a broad bloom,
-an outer accent trace, a neutral glass trace, and a brighter core trace. Each path
-allocates its Bézier segments once and mutates only point structs while running;
-the former per-tick `Polyline.Points.Clear()` churn is gone. Thirteen adaptive
-knots span the work area; center envelopes carry most visual energy while the top
-and bottom settle toward the physical seam. Idle geometry updates run at 5 Hz,
-procedural playing motion at roughly 12 Hz, and notification ripples temporarily
-at 20 Hz. Continuous orb breathing stays on the compositor. The short window
-expansion remains a separate 60 Hz transition and adds a broad center displacement
-so the waves visually unfold into the glass shell. The renderer computes one point
-set for the bloom/outer pair but keeps an independent mutable geometry per `Path`;
-WinUI dependency objects are never shared between visual parents.
+`EdgeWaveRenderer` separates sparse signal simulation from continuous visual
+presentation. Fifteen damped control nodes drift toward low-frequency procedural
+targets, and a bounded spring integrator interpolates them during compositor render
+ticks. Ninety-seven sampled points form four related contours with a broad center
+envelope and long, naturally dissipating upper/lower tails. Notification travel,
+pressure displacement, playing energy, and expansion progress all enter the same
+field model instead of being unrelated overlay effects.
+
+`NativeEdgeCompositionHost` converts those points into reusable Win2D geometries
+and system composition shapes: faint pressure strokes, accent contours, a neutral
+filament, and a layered optical half-lens. Geometry is refreshed only when the
+renderer produces a frame; brushes and accent ramps are cached between changes.
+The orb center and outer radius stay geometrically fixed in idle—only low-amplitude
+internal refraction changes—so ambient breathing does not introduce positional
+micro-jitter. The XAML canvas remains a fallback for systems where the native
+composition host cannot be created.
 
 `EdgeInteractionStateMachine` distinguishes transient pointer preview from an
 intentional pinned-open launcher state. The visible half-orb is the click target;
@@ -102,8 +111,8 @@ normal no-activation behavior.
 `IEdgeMotionSource` supplies normalized energy/band values. The current
 `ProceduralEdgeMotionSource` is deterministic and explicitly non-audio-reactive;
 a future loopback analyzer can replace it without changing geometry or media
-discovery. `EdgeBubbleController` leaves continuous breathing and notification
-expansion/ripple timing on the Windows compositor.
+discovery. Notification timing remains coordinated by `EdgeBubbleController`,
+while its pulse, orb displacement, and ripple are rendered by the same field path.
 
 ## Media
 

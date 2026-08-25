@@ -2,8 +2,8 @@
 
 NyKur Edge is a native Windows desktop companion that keeps media, notifications,
 and ambient glances attached to the edge of the primary display. Its normal idle
-surface is a transparent, full-height set of fluid traces with a half-embedded
-glass orb; the contextual glass bloom appears only when requested.
+surface is a genuinely transparent, vertically extended fluid field with a
+half-embedded glass orb; the contextual glass bloom appears only when requested.
 
 This repository contains the initial `0.1.0` vertical slice. It is a real packaged
 WinUI 3 application, not a browser shell or throwaway prototype.
@@ -13,10 +13,10 @@ WinUI 3 application, not a browser shell or throwaway prototype.
 - Borderless, topmost Edge window that stays out of Alt+Tab and does not activate
   merely because it appears.
 - DPI-aware left/right anchoring to the primary monitor work area.
-- Full-height but sparse wave/input regions instead of a filled edge bar or a
-  full-width transparent interaction strip.
-- Layered reusable Bézier traces, restrained bloom, and a half-clipped glass orb
-  whose center sits on the physical display boundary.
+- A native per-pixel-alpha composition surface for the idle wave and orb, so the
+  desktop remains visible with no XAML/window-colored slab behind the effect.
+- Layered pressure, contour, interference, and filament traces with restrained
+  bloom and a deliberate half-orb whose center sits on the display boundary.
 - Cubic-eased hover preview plus click-to-pin launcher behavior; the glass shell
   grows from the orb and keeps a collapse grace period.
 - Windows global media-session discovery, live metadata, artwork, timeline, and
@@ -24,9 +24,9 @@ WinUI 3 application, not a browser shell or throwaway prototype.
 - Artwork-derived automatic accents using OKLab candidate scoring and restrained
   chroma/lightness normalization.
 - Persisted manual accent mode with a native WinUI color picker.
-- Low-allocation procedural edge motion with separate idle/playing cadences and an
-  explicit signal-source seam for future real audio data; it is not yet
-  audio-reactive.
+- Sparse procedural signal targets with continuously spring-interpolated rendering,
+  bounded geometry reuse, and an explicit seam for future real audio data; the
+  current motion is not audio-reactive.
 - Generic glance coordinator and scheduled/previewable clock glance.
 - Supported `UserNotificationListener` integration, source filtering, privacy
   levels, permission state, notification preview state, and a bubble/icon/ripple

@@ -3,10 +3,7 @@ using System.Numerics;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Geometry;
 using Microsoft.Graphics.Canvas.UI.Xaml;
-using Microsoft.UI.Composition;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Media;
 using NyKurEdge.App.Presentation.Animations;
 using NyKurEdge.Core.Settings;
@@ -20,73 +17,77 @@ public enum EdgeOrbScale { Small, Medium }
 
 public enum EdgeShellShape { SoftCapsule, TaperedBloom }
 
+public enum EdgePressureField { Airy, Luminous }
+
+public enum EdgeVerticalReach { Focused, Extended }
+
 /// <summary>
-/// Draws one filled pressure field, its subordinate traces, and the embedded
-/// glass lens that grows into the expanded shell. Motion targets update at a
-/// low rate while the compositor crossfades cached surfaces at display cadence.
+/// Renders the ambient edge as one continuously presented fluid field. Slow,
+/// coherent simulation targets feed spring-interpolated contours; rendering is
+/// synchronized to the desktop compositor so neither the wave nor the lens
+/// advances in visible snapshots.
 /// </summary>
 public sealed class EdgeWaveRenderer : IDisposable
 {
-    private const int ControlPointCount = 11;
-    private const int RenderPointCount = 49;
-    private const double TargetIntervalSeconds = 0.125;
+    private const int ControlPointCount = 15;
+    private const int RenderPointCount = 97;
+    private const double MaximumPresentationRate = 75;
 
-    private readonly CanvasControl[] _canvases;
-    private readonly DispatcherQueueTimer _frameTimer;
+    private readonly CanvasControl _canvas;
+    private readonly EdgeWindowController _windowController;
     private readonly SolidColorBrush _accentBrush;
     private readonly IEdgeMotionSource _motionSource;
     private readonly Stopwatch _clock = Stopwatch.StartNew();
+    private readonly CanvasStrokeStyle _roundedStroke = new()
+    {
+        StartCap = CanvasCapStyle.Round,
+        EndCap = CanvasCapStyle.Round,
+        LineJoin = CanvasLineJoin.Round,
+    };
     private readonly FluidNode[] _primaryNodes = new FluidNode[ControlPointCount];
     private readonly FluidNode[] _secondaryNodes = new FluidNode[ControlPointCount];
     private readonly Vector2[] _primaryPoints = new Vector2[RenderPointCount];
     private readonly Vector2[] _secondaryPoints = new Vector2[RenderPointCount];
-    private readonly Vector2[] _innerPoints = new Vector2[RenderPointCount];
+    private readonly Vector2[] _interferencePoints = new Vector2[RenderPointCount];
+    private readonly Vector2[] _filamentPoints = new Vector2[RenderPointCount];
     private CanvasGeometry? _cachedLens;
     private CanvasGeometry? _cachedLensOutline;
     private LensCacheKey _lensCacheKey;
     private double _lastFrameSeconds;
+    private double _lastRenderRequestSeconds = double.NegativeInfinity;
     private double _nextTargetSeconds;
     private double _notificationStartedAt = double.NegativeInfinity;
     private double _notificationTimingScale = 1;
     private double _lastNotificationIconProgress = -1;
+    private double _lastNotificationExpansionProgress = -1;
     private double _expansionProgress;
     private double _intensity = 1;
-    private int _targetEpoch;
-    private int _visibleCanvasIndex;
     private bool _isPlaying;
     private bool _isRunning;
-    private bool _hasInitialFrame;
+    private bool _hasSimulationState;
     private bool _disposed;
     private EdgeSide _side = EdgeSide.Right;
     private EdgeFluidCharacter _character = EdgeFluidCharacter.Balanced;
     private EdgeOrbScale _orbScale = EdgeOrbScale.Medium;
     private EdgeShellShape _shellShape = EdgeShellShape.SoftCapsule;
+    private EdgePressureField _pressureField = EdgePressureField.Airy;
+    private EdgeVerticalReach _verticalReach = EdgeVerticalReach.Extended;
 
     public EdgeWaveRenderer(
-        CanvasControl primaryCanvas,
-        CanvasControl secondaryCanvas,
+        CanvasControl canvas,
         SolidColorBrush accentBrush,
+        EdgeWindowController windowController,
         IEdgeMotionSource? motionSource = null)
     {
-        _canvases = [primaryCanvas, secondaryCanvas];
+        _canvas = canvas;
         _accentBrush = accentBrush;
+        _windowController = windowController;
         _motionSource = motionSource ?? new ProceduralEdgeMotionSource();
-        foreach (var canvas in _canvases)
-        {
-            canvas.UseSharedDevice = true;
-            canvas.ClearColor = Color.FromArgb(0, 0, 0, 0);
-            canvas.CreateResources += OnCreateResources;
-            canvas.Draw += OnDraw;
-            canvas.SizeChanged += OnSizeChanged;
-        }
-
-        ElementCompositionPreview.GetElementVisual(_canvases[0]).Opacity = 1;
-        ElementCompositionPreview.GetElementVisual(_canvases[1]).Opacity = 0;
-
-        _frameTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
-        _frameTimer.IsRepeating = true;
-        _frameTimer.Interval = TimeSpan.FromMilliseconds(240);
-        _frameTimer.Tick += OnFrameTimerTick;
+        _canvas.UseSharedDevice = true;
+        _canvas.ClearColor = Color.FromArgb(0, 0, 0, 0);
+        _canvas.CreateResources += OnCreateResources;
+        _canvas.Draw += OnDraw;
+        _canvas.SizeChanged += OnSizeChanged;
     }
 
     public EdgeFluidCharacter Character => _character;
@@ -95,7 +96,13 @@ public sealed class EdgeWaveRenderer : IDisposable
 
     public EdgeShellShape ShellShape => _shellShape;
 
+    public EdgePressureField PressureField => _pressureField;
+
+    public EdgeVerticalReach VerticalReach => _verticalReach;
+
     public event Action<double>? NotificationIconProgressChanged;
+
+    public event Action<double>? NotificationExpansionProgressChanged;
 
     public void Start()
     {
@@ -107,9 +114,9 @@ public sealed class EdgeWaveRenderer : IDisposable
 
         _isRunning = true;
         _lastFrameSeconds = _clock.Elapsed.TotalSeconds;
-        UpdateFrameTimerInterval();
-        _frameTimer.Start();
-        _canvases[_visibleCanvasIndex].Invalidate();
+        _lastRenderRequestSeconds = double.NegativeInfinity;
+        CompositionTarget.Rendering += OnRendering;
+        _canvas.Invalidate();
     }
 
     public void Stop()
@@ -120,14 +127,19 @@ public sealed class EdgeWaveRenderer : IDisposable
         }
 
         _isRunning = false;
-        _frameTimer.Stop();
+        CompositionTarget.Rendering -= OnRendering;
     }
 
     public void SetPlaying(bool isPlaying)
     {
+        if (_isPlaying == isPlaying)
+        {
+            return;
+        }
+
         _isPlaying = isPlaying;
-        UpdateFrameTimerInterval();
-        InvalidateVisibleCanvas();
+        _nextTargetSeconds = 0;
+        Invalidate();
     }
 
     public void SetIntensity(AnimationIntensity intensity)
@@ -138,28 +150,34 @@ public sealed class EdgeWaveRenderer : IDisposable
             AnimationIntensity.Expressive => 1.22,
             _ => 1,
         };
-        InvalidateVisibleCanvas();
+        _nextTargetSeconds = 0;
+        Invalidate();
     }
 
     public void SetSide(EdgeSide side)
     {
+        if (_side == side)
+        {
+            return;
+        }
+
         _side = side;
         InvalidateLensCache();
-        InvalidateVisibleCanvas();
+        Invalidate();
     }
 
     public void SetExpansionProgress(double progress)
     {
         _expansionProgress = Math.Clamp(progress, 0, 1);
-        InvalidateVisibleCanvas();
+        Invalidate();
     }
 
     public void TriggerNotificationPulse(double timingScale = 1)
     {
         _notificationTimingScale = Math.Clamp(timingScale, 1, 4);
         _notificationStartedAt = _clock.Elapsed.TotalSeconds;
-        UpdateFrameTimerInterval();
-        InvalidateVisibleCanvas();
+        InvalidateLensCache();
+        Invalidate();
     }
 
     public EdgeFluidCharacter CycleCharacter()
@@ -170,15 +188,35 @@ public sealed class EdgeWaveRenderer : IDisposable
             EdgeFluidCharacter.Balanced => EdgeFluidCharacter.Expressive,
             _ => EdgeFluidCharacter.Calm,
         };
-        InvalidateVisibleCanvas();
+        _nextTargetSeconds = 0;
+        Invalidate();
         return _character;
+    }
+
+    public EdgePressureField CyclePressureField()
+    {
+        _pressureField = _pressureField == EdgePressureField.Airy
+            ? EdgePressureField.Luminous
+            : EdgePressureField.Airy;
+        Invalidate();
+        return _pressureField;
+    }
+
+    public EdgeVerticalReach CycleVerticalReach()
+    {
+        _verticalReach = _verticalReach == EdgeVerticalReach.Focused
+            ? EdgeVerticalReach.Extended
+            : EdgeVerticalReach.Focused;
+        _nextTargetSeconds = 0;
+        Invalidate();
+        return _verticalReach;
     }
 
     public EdgeOrbScale CycleOrbScale()
     {
         _orbScale = _orbScale == EdgeOrbScale.Small ? EdgeOrbScale.Medium : EdgeOrbScale.Small;
         InvalidateLensCache();
-        InvalidateVisibleCanvas();
+        Invalidate();
         return _orbScale;
     }
 
@@ -188,7 +226,7 @@ public sealed class EdgeWaveRenderer : IDisposable
             ? EdgeShellShape.TaperedBloom
             : EdgeShellShape.SoftCapsule;
         InvalidateLensCache();
-        InvalidateVisibleCanvas();
+        Invalidate();
         return _shellShape;
     }
 
@@ -199,39 +237,38 @@ public sealed class EdgeWaveRenderer : IDisposable
             return;
         }
 
-        _disposed = true;
         Stop();
-        _frameTimer.Tick -= OnFrameTimerTick;
-        foreach (var canvas in _canvases)
-        {
-            canvas.CreateResources -= OnCreateResources;
-            canvas.Draw -= OnDraw;
-            canvas.SizeChanged -= OnSizeChanged;
-            canvas.RemoveFromVisualTree();
-        }
+        _disposed = true;
+        _canvas.CreateResources -= OnCreateResources;
+        _canvas.Draw -= OnDraw;
+        _canvas.SizeChanged -= OnSizeChanged;
+        _canvas.RemoveFromVisualTree();
+        _roundedStroke.Dispose();
         InvalidateLensCache();
         _clock.Stop();
     }
 
-    private void OnFrameTimerTick(DispatcherQueueTimer sender, object args)
+    private void OnRendering(object? sender, object args)
     {
-        UpdateFrameTimerInterval();
-        if (_expansionProgress is > 0.001 and < 0.999)
+        if (!_isRunning || _disposed)
         {
             return;
         }
 
-        var targetCanvasIndex = 1 - _visibleCanvasIndex;
-        _canvases[targetCanvasIndex].Invalidate();
+        var seconds = _clock.Elapsed.TotalSeconds;
+        if (seconds - _lastRenderRequestSeconds < 1d / MaximumPresentationRate)
+        {
+            return;
+        }
+
+        _lastRenderRequestSeconds = seconds;
+        _canvas.Invalidate();
     }
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
         InvalidateLensCache();
-        if (ReferenceEquals(sender, _canvases[_visibleCanvasIndex]))
-        {
-            InvalidateVisibleCanvas();
-        }
+        Invalidate();
     }
 
     private void OnCreateResources(
@@ -249,118 +286,87 @@ public sealed class EdgeWaveRenderer : IDisposable
         }
 
         var seconds = _clock.Elapsed.TotalSeconds;
-        var deltaSeconds = Math.Clamp(seconds - _lastFrameSeconds, 0, 0.25);
+        var deltaSeconds = Math.Clamp(seconds - _lastFrameSeconds, 0, 0.12);
         _lastFrameSeconds = seconds;
         var signal = _motionSource.Sample(seconds, _isPlaying).Normalize();
 
         if (seconds >= _nextTargetSeconds)
         {
-            UpdateTargets(signal);
-            _nextTargetSeconds = seconds + TargetIntervalSeconds;
+            UpdateTargets(seconds, signal);
+            _nextTargetSeconds = seconds + (_isPlaying ? 0.045 : 0.085);
+            if (!_hasSimulationState)
+            {
+                SnapNodesToTargets();
+                _hasSimulationState = true;
+            }
         }
 
         while (deltaSeconds > 0)
         {
-            var step = Math.Min(deltaSeconds, 0.025);
+            var step = Math.Min(deltaSeconds, 1d / 120d);
             IntegrateNodes(step);
             deltaSeconds -= step;
         }
+
         BuildContours(width, height, seconds, signal);
         DrawFluid(args.DrawingSession, sender, width, height, seconds, signal);
-
-        var drawnCanvasIndex = ReferenceEquals(sender, _canvases[0]) ? 0 : 1;
-        if (!_hasInitialFrame)
-        {
-            if (drawnCanvasIndex == 0)
-            {
-                _hasInitialFrame = true;
-                _visibleCanvasIndex = 0;
-            }
-            return;
-        }
-
-        if (_isRunning && drawnCanvasIndex != _visibleCanvasIndex)
-        {
-            CrossFadeTo(drawnCanvasIndex);
-        }
+        var notificationAge = (seconds - _notificationStartedAt) / _notificationTimingScale;
+        _windowController.RenderCollapsedEdge(
+            _primaryPoints,
+            _secondaryPoints,
+            _interferencePoints,
+            _filamentPoints,
+            _accentBrush.Color,
+            _orbScale,
+            NotificationLensProgress(notificationAge),
+            (float)signal.Energy);
     }
 
-    private void InvalidateVisibleCanvas()
-    {
-        if (!_disposed)
-        {
-            _canvases[_visibleCanvasIndex].Invalidate();
-        }
-    }
-
-    private void UpdateFrameTimerInterval()
-    {
-        var notificationActive =
-            (_clock.Elapsed.TotalSeconds - _notificationStartedAt) <
-            (1.9 * _notificationTimingScale);
-        _frameTimer.Interval = TimeSpan.FromMilliseconds(
-            notificationActive
-                ? 40
-                : _isPlaying
-                    ? 100
-                    : 240);
-    }
-
-    private void CrossFadeTo(int targetCanvasIndex)
-    {
-        var sourceVisual = ElementCompositionPreview.GetElementVisual(_canvases[_visibleCanvasIndex]);
-        var targetVisual = ElementCompositionPreview.GetElementVisual(_canvases[targetCanvasIndex]);
-        var duration = TimeSpan.FromTicks((long)(_frameTimer.Interval.Ticks * 0.92));
-
-        StartOpacityAnimation(sourceVisual, 1, 0, duration);
-        StartOpacityAnimation(targetVisual, 0, 1, duration);
-        _visibleCanvasIndex = targetCanvasIndex;
-    }
-
-    private static void StartOpacityAnimation(
-        Visual visual,
-        float from,
-        float to,
-        TimeSpan duration)
-    {
-        visual.StopAnimation("Opacity");
-        visual.Opacity = to;
-        var animation = visual.Compositor.CreateScalarKeyFrameAnimation();
-        animation.InsertKeyFrame(0, from);
-        animation.InsertKeyFrame(1, to);
-        animation.Duration = duration;
-        visual.StartAnimation("Opacity", animation);
-    }
-
-    private void UpdateTargets(EdgeMotionSignal signal)
+    private void UpdateTargets(double seconds, EdgeMotionSignal signal)
     {
         var characterScale = _character switch
         {
-            EdgeFluidCharacter.Calm => 0.66,
-            EdgeFluidCharacter.Expressive => 1.28,
+            EdgeFluidCharacter.Calm => 0.62,
+            EdgeFluidCharacter.Expressive => 1.26,
             _ => 1,
         };
-        var activity = (0.48 + (signal.Energy * 1.55)) * _intensity * characterScale;
+        var activity = (0.34 + (signal.Energy * 1.42)) * _intensity * characterScale;
 
         for (var index = 0; index < ControlPointCount; index++)
         {
             var normalized = index / (double)(ControlPointCount - 1);
-            var envelope = Gaussian(normalized, 0.5, 3.15);
-            _primaryNodes[index].Target = SignedHash(_targetEpoch, index, 17) * activity * envelope;
-            _secondaryNodes[index].Target = SignedHash(_targetEpoch, index, 73) * activity * envelope * 0.72;
-        }
+            var presence = VerticalPresence(normalized);
+            var slowPrimary = SignedNoise((seconds * 0.115) + (index * 0.19), 17 + (index * 23));
+            var finePrimary = SignedNoise((seconds * 0.31) + (index * 0.11), 59 + (index * 31));
+            var slowSecondary = SignedNoise((seconds * 0.093) + (index * 0.23), 101 + (index * 19));
+            var fineSecondary = SignedNoise((seconds * 0.27) + (index * 0.17), 149 + (index * 29));
 
-        _targetEpoch++;
+            _primaryNodes[index].Target =
+                ((slowPrimary * 0.74) + (finePrimary * 0.26)) * activity * presence;
+            _secondaryNodes[index].Target =
+                ((slowSecondary * 0.78) + (fineSecondary * 0.22)) * activity * presence * 0.82;
+        }
+    }
+
+    private void SnapNodesToTargets()
+    {
+        for (var index = 0; index < ControlPointCount; index++)
+        {
+            _primaryNodes[index].Value = _primaryNodes[index].Target;
+            _primaryNodes[index].Velocity = 0;
+            _secondaryNodes[index].Value = _secondaryNodes[index].Target;
+            _secondaryNodes[index].Velocity = 0;
+        }
     }
 
     private void IntegrateNodes(double deltaSeconds)
     {
-        var responsiveness = _isPlaying ? 11.8 : 7.8;
-        var damping = _isPlaying ? 6.8 : 7.3;
+        var stiffness = _isPlaying ? 18.5 : 10.5;
+        var damping = _isPlaying ? 8.4 : 6.4;
         for (var index = 0; index < ControlPointCount; index++)
         {
-            Integrate(ref _primaryNodes[index], deltaSeconds, responsiveness, damping);
-            Integrate(ref _secondaryNodes[index], deltaSeconds, responsiveness * 0.86, damping * 1.03);
+            Integrate(ref _primaryNodes[index], deltaSeconds, stiffness, damping);
+            Integrate(ref _secondaryNodes[index], deltaSeconds, stiffness * 0.82, damping * 1.04);
         }
     }
 
@@ -368,38 +374,64 @@ public sealed class EdgeWaveRenderer : IDisposable
     {
         var edgeX = _side == EdgeSide.Right ? width : 0f;
         var direction = _side == EdgeSide.Right ? -1f : 1f;
-        var playingReach = _isPlaying ? 6f + ((float)signal.LowBand * 7f) : 0f;
-        var expression = _character == EdgeFluidCharacter.Expressive ? 5f : 0f;
-        var expansionReach = (float)(SmoothStep(_expansionProgress) * 55);
-        var notificationAge = seconds - _notificationStartedAt;
-        notificationAge /= _notificationTimingScale;
+        var playingReach = _isPlaying ? 4.5f + ((float)signal.LowBand * 6.5f) : 0f;
+        var expression = _character == EdgeFluidCharacter.Expressive ? 4.2f : 0f;
+        var expansionReach = (float)(SmoothStep(_expansionProgress) * 58);
+        var notificationAge = (seconds - _notificationStartedAt) / _notificationTimingScale;
 
         for (var index = 0; index < RenderPointCount; index++)
         {
             var normalized = index / (double)(RenderPointCount - 1);
-            var centerEnvelope = Gaussian(normalized, 0.5, 3.25);
-            var orbChannel = Gaussian(normalized, 0.5, 17.2);
-            var shoulders = Gaussian(normalized, 0.422, 24) + Gaussian(normalized, 0.578, 24);
-            var baseReach = 0.55 +
-                            (centerEnvelope * (34 + playingReach + expression) * (1 - (orbChannel * 0.84))) +
-                            (shoulders * 9.5) +
-                            (expansionReach * Gaussian(normalized, 0.5, 2.25));
-            var primaryNoise = SampleNode(_primaryNodes, normalized) *
-                               (2.5 + (signal.MidBand * 5.2)) * centerEnvelope;
-            var secondaryNoise = SampleNode(_secondaryNodes, normalized) *
-                                 (2 + (signal.HighBand * 3.8)) * centerEnvelope;
+            var presence = VerticalPresence(normalized);
+            var center = Gaussian(normalized, 0.5, 2.14);
+            var orbChannel = Gaussian(normalized, 0.5, 15.8);
+            var shoulders =
+                Gaussian(normalized, 0.435, 20.5) +
+                Gaussian(normalized, 0.565, 20.5);
+            var distantFlow =
+                Gaussian(normalized, 0.285, 9.6) +
+                Gaussian(normalized, 0.715, 9.6);
+            var splitAroundOrb = 1 - (orbChannel * 0.36);
+            var baseReach = presence *
+                            (2.4 +
+                             ((17.5 + playingReach + expression) * center) +
+                             (4.8 * shoulders) +
+                             (2.8 * distantFlow)) *
+                            splitAroundOrb;
+            var primaryDrift = SampleNode(_primaryNodes, normalized) *
+                               (3.2 + (signal.MidBand * 4.5));
+            var secondaryDrift = SampleNode(_secondaryNodes, normalized) *
+                                 (2.7 + (signal.HighBand * 3.7));
+            var fieldDrift = SignedNoise((seconds * 0.072) + (normalized * 2.7), 211) *
+                             presence * 2.15;
             var notification = NotificationDisplacement(normalized, notificationAge);
+            var expansion = expansionReach * Gaussian(normalized, 0.5, 2.18);
             var y = (float)(normalized * height);
 
-            var primaryReach = Math.Clamp(baseReach + primaryNoise + notification, 0.35, width - 2);
+            var primaryReach = Math.Clamp(
+                baseReach + primaryDrift + fieldDrift + notification + expansion,
+                0.15,
+                width - 2);
             var secondaryReach = Math.Clamp(
-                (baseReach * 0.62) + secondaryNoise + (notification * 0.56), 0.2, width - 2);
-            var innerReach = Math.Clamp(
-                (baseReach * 0.33) + (primaryNoise * 0.24) + (notification * 0.28), 0.1, width - 2);
+                (baseReach * 0.84) + secondaryDrift - (fieldDrift * 0.26) +
+                (notification * 0.62) + (expansion * 0.93),
+                0.1,
+                width - 2);
+            var interferenceReach = Math.Clamp(
+                (baseReach * 1.07) - (primaryDrift * 0.24) + (secondaryDrift * 0.34) +
+                (notification * 0.78) + (expansion * 0.98),
+                0.1,
+                width - 2);
+            var filamentReach = Math.Clamp(
+                (baseReach * 0.62) + (primaryDrift * 0.14) + (secondaryDrift * 0.10) +
+                (notification * 0.31) + (expansion * 0.86),
+                0.08,
+                width - 2);
 
             _primaryPoints[index] = new Vector2(edgeX + (direction * (float)primaryReach), y);
             _secondaryPoints[index] = new Vector2(edgeX + (direction * (float)secondaryReach), y);
-            _innerPoints[index] = new Vector2(edgeX + (direction * (float)innerReach), y);
+            _interferencePoints[index] = new Vector2(edgeX + (direction * (float)interferenceReach), y);
+            _filamentPoints[index] = new Vector2(edgeX + (direction * (float)filamentReach), y);
         }
     }
 
@@ -412,28 +444,32 @@ public sealed class EdgeWaveRenderer : IDisposable
         EdgeMotionSignal signal)
     {
         var accent = _accentBrush.Color;
-        var edgeX = _side == EdgeSide.Right ? width : 0f;
+        var energy = (float)signal.Energy;
+        var fieldScale = _pressureField == EdgePressureField.Airy ? 0.78f : 1.16f;
 
-        using var pressureField = CreatePressureFieldGeometry(canvas, edgeX, height);
-        drawingSession.FillGeometry(
-            pressureField,
-            Color.FromArgb((byte)(11 + (signal.Energy * 11)), accent.R, accent.G, accent.B));
+        // Broad strokes replace the old closed fill. Their alpha is deliberately
+        // tiny: together they imply refracted volume without creating a slab.
+        DrawContour(drawingSession, _primaryPoints, accent, 12f, (byte)(5 * fieldScale), height);
+        DrawContour(drawingSession, _primaryPoints, accent, 6f, (byte)((8 + (energy * 2)) * fieldScale), height);
+        DrawContour(drawingSession, _primaryPoints, accent, 3f, (byte)((13 + (energy * 3)) * fieldScale), height);
+        DrawContour(drawingSession, _secondaryPoints, accent, 4.5f, (byte)((6 + (energy * 2)) * fieldScale), height);
 
-        using var primaryBand = CreateBandGeometry(canvas, _primaryPoints, _secondaryPoints);
-        drawingSession.FillGeometry(
-            primaryBand,
-            Color.FromArgb((byte)(13 + (signal.Energy * 8)), accent.R, accent.G, accent.B));
-
-        DrawContour(drawingSession, _primaryPoints, accent, 12f, 8, height);
-        DrawContour(drawingSession, _primaryPoints, accent, 5.5f, 18, height);
-        DrawContour(drawingSession, _primaryPoints, accent, 1.48f, 132, height);
-        DrawContour(drawingSession, _secondaryPoints, accent, 0.88f, 31, height);
+        DrawContour(drawingSession, _interferencePoints, accent, 0.78f, 30, height);
+        DrawContour(drawingSession, _secondaryPoints, accent, 1.02f, 48, height);
+        DrawContour(drawingSession, _primaryPoints, accent, 1.55f, (byte)(118 + (energy * 25)), height);
         DrawContour(
             drawingSession,
-            _innerPoints,
-            Color.FromArgb(255, 255, 255, 255),
+            _primaryPoints,
+            Color.FromArgb(255, 246, 249, 252),
+            0.48f,
+            38,
+            height);
+        DrawContour(
+            drawingSession,
+            _filamentPoints,
+            Color.FromArgb(255, 246, 250, 253),
             0.68f,
-            30,
+            34,
             height);
 
         DrawMorphingLens(
@@ -445,41 +481,6 @@ public sealed class EdgeWaveRenderer : IDisposable
             SmoothStep(_expansionProgress),
             accent,
             signal);
-    }
-
-    private CanvasGeometry CreatePressureFieldGeometry(CanvasControl canvas, float edgeX, float height)
-    {
-        using var builder = new CanvasPathBuilder(canvas);
-        builder.BeginFigure(new Vector2(edgeX, 0));
-        foreach (var point in _primaryPoints)
-        {
-            builder.AddLine(point);
-        }
-
-        builder.AddLine(new Vector2(edgeX, height));
-        builder.EndFigure(CanvasFigureLoop.Closed);
-        return CanvasGeometry.CreatePath(builder);
-    }
-
-    private static CanvasGeometry CreateBandGeometry(
-        CanvasControl canvas,
-        Vector2[] outerPoints,
-        Vector2[] innerPoints)
-    {
-        using var builder = new CanvasPathBuilder(canvas);
-        builder.BeginFigure(outerPoints[0]);
-        for (var index = 1; index < outerPoints.Length; index++)
-        {
-            builder.AddLine(outerPoints[index]);
-        }
-
-        for (var index = innerPoints.Length - 1; index >= 0; index--)
-        {
-            builder.AddLine(innerPoints[index]);
-        }
-
-        builder.EndFigure(CanvasFigureLoop.Closed);
-        return CanvasGeometry.CreatePath(builder);
     }
 
     private void DrawMorphingLens(
@@ -494,24 +495,19 @@ public sealed class EdgeWaveRenderer : IDisposable
     {
         var notificationAge = (seconds - _notificationStartedAt) / _notificationTimingScale;
         var notification = NotificationLensProgress(notificationAge);
-        var iconProgress = SmoothStep(Math.Clamp((notification - 0.18) / 0.72, 0, 1));
-        if (Math.Abs(iconProgress - _lastNotificationIconProgress) > 0.012 || iconProgress is 0 or 1)
-        {
-            _lastNotificationIconProgress = iconProgress;
-            NotificationIconProgressChanged?.Invoke(iconProgress);
-        }
+        var iconProgress = SmoothStep(Math.Clamp((notification - 0.16) / 0.76, 0, 1));
+        PublishNotificationProgress(notification, iconProgress);
 
-        var breathing = (float)signal.Energy * (_isPlaying ? 1f : 0.3f);
-        var baseHeight = _orbScale == EdgeOrbScale.Small ? 30f : 36f;
-        var baseReach = _orbScale == EdgeOrbScale.Small ? 15f : 20f;
+        var baseHeight = _orbScale == EdgeOrbScale.Small ? 31f : 38f;
+        var baseReach = _orbScale == EdgeOrbScale.Small ? 16f : 21f;
         var targetHeight = _shellShape == EdgeShellShape.SoftCapsule ? 272f : 258f;
         var horizontalProgress = (float)(1 - Math.Pow(1 - expansion, 3.4));
         var verticalProgress = (float)Math.Pow(expansion, 0.66);
         var visibleReach = Lerp(
-            baseReach + ((float)notification * 28f),
+            baseReach + ((float)notification * 27f),
             Math.Max(baseReach, width - 10f),
             horizontalProgress);
-        var lensHeight = Lerp(baseHeight + ((float)notification * 10f), targetHeight, verticalProgress);
+        var lensHeight = Lerp(baseHeight + ((float)notification * 12f), targetHeight, verticalProgress);
         var centerY = height / 2f;
 
         var isStableShape = notification <= 0.0001 &&
@@ -578,20 +574,20 @@ public sealed class EdgeWaveRenderer : IDisposable
 
         try
         {
-            drawingSession.DrawGeometry(outline, Color.FromArgb(18, accent.R, accent.G, accent.B), 11f);
-            drawingSession.DrawGeometry(outline, Color.FromArgb(28, accent.R, accent.G, accent.B), 4.5f);
-            drawingSession.FillGeometry(shell, Color.FromArgb((byte)Lerp(76, 138, (float)expansion), 9, 13, 19));
+            drawingSession.DrawGeometry(outline, Color.FromArgb(14, accent.R, accent.G, accent.B), 12f);
+            drawingSession.DrawGeometry(outline, Color.FromArgb(25, accent.R, accent.G, accent.B), 4.2f);
+            drawingSession.FillGeometry(shell, Color.FromArgb((byte)Lerp(43, 142, (float)expansion), 8, 12, 18));
             drawingSession.FillGeometry(
                 shell,
-                Color.FromArgb((byte)Lerp(21, 8, (float)expansion), accent.R, accent.G, accent.B));
+                Color.FromArgb((byte)Lerp(15, 7, (float)expansion), accent.R, accent.G, accent.B));
             drawingSession.DrawGeometry(
                 outline,
-                Color.FromArgb((byte)Lerp(96, 53, (float)expansion), 236, 242, 248),
-                0.82f);
+                Color.FromArgb((byte)Lerp(92, 53, (float)expansion), 239, 244, 248),
+                0.76f);
             drawingSession.DrawGeometry(
                 outline,
-                Color.FromArgb((byte)Lerp(62, 31, (float)expansion), accent.R, accent.G, accent.B),
-                1.45f);
+                Color.FromArgb((byte)Lerp(57, 30, (float)expansion), accent.R, accent.G, accent.B),
+                1.35f);
 
             if (expansion < 0.58)
             {
@@ -603,13 +599,29 @@ public sealed class EdgeWaveRenderer : IDisposable
                     lensHeight,
                     accent,
                     (float)(1 - Math.Clamp(expansion / 0.58, 0, 1)),
-                    breathing);
+                    (float)signal.Energy);
             }
         }
         finally
         {
             transientOutline?.Dispose();
             transientShell?.Dispose();
+        }
+    }
+
+    private void PublishNotificationProgress(double expansionProgress, double iconProgress)
+    {
+        if (Math.Abs(expansionProgress - _lastNotificationExpansionProgress) > 0.012 ||
+            expansionProgress is 0 or 1)
+        {
+            _lastNotificationExpansionProgress = expansionProgress;
+            NotificationExpansionProgressChanged?.Invoke(expansionProgress);
+        }
+
+        if (Math.Abs(iconProgress - _lastNotificationIconProgress) > 0.012 || iconProgress is 0 or 1)
+        {
+            _lastNotificationIconProgress = iconProgress;
+            NotificationIconProgressChanged?.Invoke(iconProgress);
         }
     }
 
@@ -663,43 +675,49 @@ public sealed class EdgeWaveRenderer : IDisposable
         float lensHeight,
         Color accent,
         float opacity,
-        float breathing)
+        float energy)
     {
         var direction = _side == EdgeSide.Right ? -1f : 1f;
         var edgeX = _side == EdgeSide.Right ? width : 0f;
+        var opticalEnergy = Math.Clamp(energy, 0f, 1f);
+        var radius = lensHeight * 0.37f;
 
-        var innerRadius = (lensHeight * 0.37f) + breathing;
         drawingSession.FillCircle(
             new Vector2(edgeX, centerY),
-            innerRadius,
-            Color.FromArgb((byte)(13 * opacity), 245, 249, 252));
+            radius,
+            Color.FromArgb((byte)((9 + (opticalEnergy * 4)) * opacity), 246, 249, 252));
         drawingSession.FillCircle(
             new Vector2(edgeX, centerY),
-            innerRadius * 0.84f,
-            Color.FromArgb((byte)((25 + (breathing * 4)) * opacity), accent.R, accent.G, accent.B));
+            radius * 0.82f,
+            Color.FromArgb(
+                (byte)((18 + (opticalEnergy * 11)) * opacity),
+                accent.R,
+                accent.G,
+                accent.B));
         drawingSession.DrawCircle(
             new Vector2(edgeX, centerY),
-            innerRadius * 0.88f,
-            Color.FromArgb((byte)(37 * opacity), 247, 250, 253),
-            0.58f);
+            radius * 0.88f,
+            Color.FromArgb((byte)(34 * opacity), 247, 250, 253),
+            0.56f);
 
         drawingSession.FillCircle(
-            new Vector2(edgeX + (direction * visibleReach * 0.62f), centerY - (lensHeight * 0.12f)),
-            Math.Max(2.4f, visibleReach * 0.23f),
-            Color.FromArgb((byte)(38 * opacity), accent.R, accent.G, accent.B));
+            new Vector2(edgeX + (direction * visibleReach * 0.62f), centerY - (lensHeight * 0.11f)),
+            Math.Max(2.4f, visibleReach * 0.22f),
+            Color.FromArgb((byte)((28 + (opticalEnergy * 9)) * opacity), accent.R, accent.G, accent.B));
         drawingSession.FillCircle(
-            new Vector2(edgeX + (direction * visibleReach * 0.72f), centerY - (lensHeight * 0.24f)),
-            Math.Max(0.8f, visibleReach * 0.065f),
-            Color.FromArgb((byte)(196 * opacity), 250, 252, 255));
+            new Vector2(edgeX + (direction * visibleReach * 0.73f), centerY - (lensHeight * 0.24f)),
+            Math.Max(0.8f, visibleReach * 0.062f),
+            Color.FromArgb((byte)(190 * opacity), 250, 252, 255));
 
         var top = centerY - (lensHeight * 0.39f);
         drawingSession.DrawLine(
-            new Vector2(edgeX + (direction * visibleReach * 0.25f), top),
+            new Vector2(edgeX + (direction * visibleReach * 0.24f), top),
             new Vector2(
                 edgeX + (direction * visibleReach * 0.78f),
                 centerY - (lensHeight * 0.19f)),
-            Color.FromArgb((byte)(132 * opacity), 250, 252, 255),
-            0.9f);
+            Color.FromArgb((byte)(124 * opacity), 250, 252, 255),
+            0.82f,
+            _roundedStroke);
     }
 
     private void InvalidateLensCache()
@@ -711,7 +729,7 @@ public sealed class EdgeWaveRenderer : IDisposable
         _lensCacheKey = default;
     }
 
-    private static void DrawContour(
+    private void DrawContour(
         CanvasDrawingSession drawingSession,
         Vector2[] points,
         Color color,
@@ -719,17 +737,12 @@ public sealed class EdgeWaveRenderer : IDisposable
         byte peakAlpha,
         float height)
     {
-        var centerY = height / 2f;
         for (var index = 1; index < points.Length; index++)
         {
             var midpointY = (points[index - 1].Y + points[index].Y) / 2f;
-            if (Math.Abs(midpointY - centerY) < 19f)
-            {
-                continue;
-            }
-
-            var envelope = Gaussian(midpointY / Math.Max(1f, height), 0.5, 3.2);
-            var alpha = (byte)Math.Clamp((int)Math.Round(peakAlpha * envelope), 0, 255);
+            var normalized = midpointY / Math.Max(1f, height);
+            var opacity = VerticalOpacity(normalized);
+            var alpha = (byte)Math.Clamp((int)Math.Round(peakAlpha * opacity), 0, 255);
             if (alpha < 2)
             {
                 continue;
@@ -739,13 +752,39 @@ public sealed class EdgeWaveRenderer : IDisposable
                 points[index - 1],
                 points[index],
                 Color.FromArgb(alpha, color.R, color.G, color.B),
-                strokeWidth);
+                strokeWidth,
+                _roundedStroke);
         }
     }
 
-    private static void Integrate(ref FluidNode node, double deltaSeconds, double responsiveness, double damping)
+    private double VerticalPresence(double normalized)
     {
-        var acceleration = ((node.Target - node.Value) * responsiveness) - (node.Velocity * damping);
+        var fadeDistance = _verticalReach == EdgeVerticalReach.Extended ? 0.105 : 0.18;
+        var edgeFade = SmootherStep(Math.Clamp(normalized / fadeDistance, 0, 1)) *
+                       SmootherStep(Math.Clamp((1 - normalized) / fadeDistance, 0, 1));
+        var centerSharpness = _verticalReach == EdgeVerticalReach.Extended ? 2.05 : 2.55;
+        var broadCenter = Gaussian(normalized, 0.5, centerSharpness);
+        var floor = _verticalReach == EdgeVerticalReach.Extended ? 0.17 : 0.10;
+        return edgeFade * (floor + ((1 - floor) * broadCenter));
+    }
+
+    private double VerticalOpacity(double normalized)
+    {
+        var presence = VerticalPresence(normalized);
+        return Math.Pow(Math.Clamp(presence, 0, 1), 0.72);
+    }
+
+    private void Invalidate()
+    {
+        if (!_disposed)
+        {
+            _canvas.Invalidate();
+        }
+    }
+
+    private static void Integrate(ref FluidNode node, double deltaSeconds, double stiffness, double damping)
+    {
+        var acceleration = ((node.Target - node.Value) * stiffness) - (node.Velocity * damping);
         node.Velocity += acceleration * deltaSeconds;
         node.Value += node.Velocity * deltaSeconds;
     }
@@ -759,49 +798,60 @@ public sealed class EdgeWaveRenderer : IDisposable
 
     private static double NotificationDisplacement(double normalizedY, double age)
     {
-        if (age is < 0 or > 1.9)
+        if (age is < 0 or > 1.92)
         {
             return 0;
         }
 
-        var incoming = age <= 0.38
-            ? Gaussian(normalizedY, 0.16 + (SmootherStep(age / 0.38) * 0.34), 27) * 12
-            : 0;
-        if (age < 0.25)
+        var incomingProgress = Math.Clamp(age / 0.42, 0, 1);
+        var incomingCenter = 0.13 + (SmootherStep(incomingProgress) * 0.37);
+        var incomingEnvelope = 1 - SmoothStep(Math.Clamp((age - 0.28) / 0.22, 0, 1));
+        var incoming = Gaussian(normalizedY, incomingCenter, 29) * incomingEnvelope * 13;
+
+        if (age < 0.26)
         {
             return incoming;
         }
 
-        var progress = Math.Clamp((age - 0.25) / 1.55, 0, 1);
-        var radius = SmootherStep(progress) * 0.48;
-        var ripple = Math.Exp(-Math.Pow((Math.Abs(normalizedY - 0.5) - radius) * 25, 2)) *
-                     (1 - progress) * 16;
-        return incoming + ripple;
+        var rippleProgress = Math.Clamp((age - 0.26) / 1.62, 0, 1);
+        var radius = SmootherStep(rippleProgress) * 0.49;
+        var ripple = Math.Exp(-Math.Pow((Math.Abs(normalizedY - 0.5) - radius) * 24, 2)) *
+                     Math.Pow(1 - rippleProgress, 1.2) * 17;
+        var wake = -Gaussian(normalizedY, 0.5, 13) *
+                   Math.Sin(Math.PI * Math.Clamp((age - 0.35) / 0.9, 0, 1)) * 2.4;
+        return incoming + ripple + wake;
     }
 
     private static double NotificationLensProgress(double age)
     {
-        if (age is < 0 or > 1.82)
+        if (age is < 0 or > 1.84)
         {
             return 0;
         }
 
-        if (age < 0.30)
+        if (age < 0.28)
         {
-            return SmoothStep(age / 0.30);
+            return SmootherStep(age / 0.28);
         }
 
-        return age < 1.18 ? 1 : 1 - SmoothStep((age - 1.18) / 0.64);
+        return age < 1.16 ? 1 : 1 - SmootherStep((age - 1.16) / 0.68);
     }
 
-    private static double SignedHash(int epoch, int index, int seed)
+    private static double SignedNoise(double value, int seed)
+    {
+        var left = (int)Math.Floor(value);
+        var amount = SmootherStep(value - left);
+        return Lerp(SignedHash(left, seed), SignedHash(left + 1, seed), amount);
+    }
+
+    private static double SignedHash(int value, int seed)
     {
         unchecked
         {
-            var value = (uint)(epoch * 374761393 + index * 668265263 + seed * 2246822519);
-            value = (value ^ (value >> 13)) * 1274126177;
-            value ^= value >> 16;
-            return ((value & 0x00FFFFFF) / (double)0x007FFFFF) - 1;
+            var hash = (uint)(value * 374761393 + seed * 668265263);
+            hash = (hash ^ (hash >> 13)) * 1274126177;
+            hash ^= hash >> 16;
+            return ((hash & 0x00FFFFFF) / (double)0x007FFFFF) - 1;
         }
     }
 

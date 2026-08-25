@@ -11,25 +11,20 @@
 
     <Grid
         x:Name="InteractionRoot"
-        Background="#01000000"
+        Background="Transparent"
         PointerEntered="OnPointerEntered"
         PointerExited="OnPointerExited">
         <Grid
             x:Name="LayoutGrid"
-            Width="96"
+            Width="112"
             HorizontalAlignment="Left">
             <Grid
                 x:Name="EdgeSurface"
-                Width="96"
+                Width="112"
                 HorizontalAlignment="Right"
                 Background="Transparent">
                 <canvas:CanvasControl
                     x:Name="FluidCanvas"
-                    HorizontalAlignment="Stretch"
-                    VerticalAlignment="Stretch"
-                    IsHitTestVisible="False" />
-                <canvas:CanvasControl
-                    x:Name="FluidCanvasSecondary"
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Stretch"
                     IsHitTestVisible="False" />
@@ -315,8 +310,9 @@
                     HorizontalAlignment="Right"
                     VerticalAlignment="Center"
                     AutomationProperties.Name="Open or pin NyKur Edge"
-                    Background="#01000000"
+                    Background="Transparent"
                     BorderThickness="0"
+                    Canvas.ZIndex="100"
                     Click="OnEdgeLauncherClicked"
                     IsTabStop="False"
                     Padding="0">

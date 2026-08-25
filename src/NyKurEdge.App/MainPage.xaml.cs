@@ -45,6 +45,7 @@ public sealed partial class MainPage : Page, IDisposable
     private bool _visualTestExpanded;
     private bool _visualTestNotificationContext;
     private int _visualTestAccentIndex;
+    private int _visualTestPointerScenario;
 #endif
 
     public MainPage(
@@ -66,9 +67,10 @@ public sealed partial class MainPage : Page, IDisposable
 
         _edgeRenderer = new EdgeWaveRenderer(
             FluidCanvas,
-            FluidCanvasSecondary,
-            GetApplicationBrush("NyKurAccentBrush"));
+            GetApplicationBrush("NyKurAccentBrush"),
+            _windowController);
         _edgeRenderer.NotificationIconProgressChanged += OnNotificationIconProgressChanged;
+        _edgeRenderer.NotificationExpansionProgressChanged += OnNotificationExpansionProgressChanged;
         _accentController = new AccentTransitionController(
             (GetApplicationBrush("NyKurAccentBrush"), 255),
             (GetApplicationBrush("NyKurAccentSoftBrush"), 80),
@@ -81,9 +83,15 @@ public sealed partial class MainPage : Page, IDisposable
         ViewModel.NotificationArrived += OnNotificationArrived;
         ViewModel.GlanceVisibilityChanged += OnGlanceVisibilityChanged;
         _windowController.ExpansionProgressChanged += OnExpansionProgressChanged;
+        _windowController.CollapsedPointerEntered += OnCollapsedPointerEntered;
+        _windowController.CollapsedPointerExited += OnCollapsedPointerExited;
+        _windowController.CollapsedClicked += OnCollapsedClicked;
+        _windowController.CollapsedSecondaryClicked += OnCollapsedSecondaryClicked;
 
 #if NYKUR_EDGE_VISUAL_TEST
         _visualTestSide = ViewModel.Settings.EdgeSide;
+        RegisterVisualTestAccelerator(VirtualKey.F1);
+        RegisterVisualTestAccelerator(VirtualKey.F2);
         RegisterVisualTestAccelerator(VirtualKey.F3);
         RegisterVisualTestAccelerator(VirtualKey.F4);
         RegisterVisualTestAccelerator(VirtualKey.F5);
@@ -106,6 +114,7 @@ public sealed partial class MainPage : Page, IDisposable
     {
 #if NYKUR_EDGE_VISUAL_TEST
         _visualTestPlaying = ViewModel.IsPlaying;
+        _accentController.TransitionTo(VisualTestAccents[_visualTestAccentIndex]);
         _windowController.SetVisualInspectionStatus("NyKur Edge QA · idle");
 #endif
         _edgeRenderer.Start();
@@ -134,7 +143,12 @@ public sealed partial class MainPage : Page, IDisposable
         ViewModel.NotificationArrived -= OnNotificationArrived;
         ViewModel.GlanceVisibilityChanged -= OnGlanceVisibilityChanged;
         _windowController.ExpansionProgressChanged -= OnExpansionProgressChanged;
+        _windowController.CollapsedPointerEntered -= OnCollapsedPointerEntered;
+        _windowController.CollapsedPointerExited -= OnCollapsedPointerExited;
+        _windowController.CollapsedClicked -= OnCollapsedClicked;
+        _windowController.CollapsedSecondaryClicked -= OnCollapsedSecondaryClicked;
         _edgeRenderer.NotificationIconProgressChanged -= OnNotificationIconProgressChanged;
+        _edgeRenderer.NotificationExpansionProgressChanged -= OnNotificationExpansionProgressChanged;
 
 #if NYKUR_EDGE_VISUAL_TEST
         foreach (var accelerator in _visualTestAccelerators)
@@ -152,21 +166,41 @@ public sealed partial class MainPage : Page, IDisposable
         ViewModel.Dispose();
     }
 
-    private void OnPointerEntered(object sender, PointerRoutedEventArgs e)
+    private void OnPointerEntered(object sender, PointerRoutedEventArgs e) => HandlePointerEntered();
+
+    private void OnCollapsedPointerEntered(object? sender, EventArgs e) => HandlePointerEntered();
+
+    private void HandlePointerEntered()
     {
+#if NYKUR_EDGE_VISUAL_TEST
+        // Keep screenshot states deterministic and prevent an existing mouse
+        // position from opening the QA window. F9 exercises the same bloom path.
+        _ = _windowController;
+        return;
+#else
         _collapseTimer.Stop();
         _stateMachine.PointerEntered();
         UpdateContextSurface();
         _windowController.SetExpanded(true);
+#endif
     }
 
-    private void OnPointerExited(object sender, PointerRoutedEventArgs e)
+    private void OnPointerExited(object sender, PointerRoutedEventArgs e) => HandlePointerExited();
+
+    private void OnCollapsedPointerExited(object? sender, EventArgs e) => HandlePointerExited();
+
+    private void HandlePointerExited()
     {
+#if NYKUR_EDGE_VISUAL_TEST
+        _ = _windowController;
+        return;
+#else
         _stateMachine.PointerExited(DateTimeOffset.Now);
         if (!_stateMachine.State.IsPinnedOpen)
         {
             _collapseTimer.Start();
         }
+#endif
     }
 
     private void OnCollapseTimerTick(DispatcherQueueTimer sender, object args)
@@ -208,6 +242,46 @@ public sealed partial class MainPage : Page, IDisposable
     }
 
     private void OnEdgeLauncherClicked(object sender, RoutedEventArgs e)
+    {
+        TogglePinnedOpen();
+    }
+
+    private void OnCollapsedClicked(object? sender, EventArgs e) => TogglePinnedOpen();
+
+    private void OnCollapsedSecondaryClicked(object? sender, EventArgs e)
+    {
+#if NYKUR_EDGE_VISUAL_TEST
+        _visualTestPointerScenario = (_visualTestPointerScenario + 1) % 3;
+        switch (_visualTestPointerScenario)
+        {
+            case 1:
+                _visualTestNotificationContext = true;
+                UpdateContextSurface();
+                _edgeRenderer.TriggerNotificationPulse(timingScale: 4);
+                _windowController.SetVisualInspectionStatus("NyKur Edge QA · notification");
+                break;
+            case 2:
+                _visualTestSide = _visualTestSide == EdgeSide.Right
+                    ? EdgeSide.Left
+                    : EdgeSide.Right;
+                ApplyEdgeSide(_visualTestSide);
+                _windowController.SetVisualInspectionSide(_visualTestSide);
+                _windowController.SetVisualInspectionStatus(
+                    $"NyKur Edge QA · {_visualTestSide.ToString().ToLowerInvariant()}");
+                break;
+            default:
+                _visualTestAccentIndex = (_visualTestAccentIndex + 1) % VisualTestAccents.Length;
+                _accentController.TransitionTo(VisualTestAccents[_visualTestAccentIndex]);
+                _windowController.SetVisualInspectionStatus(
+                    $"NyKur Edge QA · accent {_visualTestAccentIndex + 1}");
+                break;
+        }
+#else
+        _openSettings();
+#endif
+    }
+
+    private void TogglePinnedOpen()
     {
         SetPinnedOpen(!_stateMachine.State.IsPinnedOpen);
 #if NYKUR_EDGE_VISUAL_TEST
@@ -274,6 +348,9 @@ public sealed partial class MainPage : Page, IDisposable
         NotificationIconTransform.ScaleX = scale;
         NotificationIconTransform.ScaleY = scale;
     }
+
+    private void OnNotificationExpansionProgressChanged(double progress) =>
+        _windowController.SetNotificationExpansion(progress);
 
     private void OnGlanceVisibilityChanged(bool visible)
     {
@@ -396,6 +473,14 @@ public sealed partial class MainPage : Page, IDisposable
     {
         switch (sender.Key)
         {
+            case VirtualKey.F1:
+                _windowController.SetVisualInspectionStatus(
+                    $"NyKur Edge QA · field {_edgeRenderer.CyclePressureField().ToString().ToLowerInvariant()}");
+                break;
+            case VirtualKey.F2:
+                _windowController.SetVisualInspectionStatus(
+                    $"NyKur Edge QA · reach {_edgeRenderer.CycleVerticalReach().ToString().ToLowerInvariant()}");
+                break;
             case VirtualKey.F3:
                 _windowController.SetVisualInspectionStatus(
                     $"NyKur Edge QA · orb {_edgeRenderer.CycleOrbScale().ToString().ToLowerInvariant()}");

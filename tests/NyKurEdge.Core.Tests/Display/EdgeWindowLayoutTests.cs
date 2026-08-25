@@ -13,10 +13,10 @@ public sealed class EdgeWindowLayoutTests
     {
         var bounds = EdgeWindowLayout.Calculate(WorkArea, 96, EdgeSide.Right, 0);
 
-        Assert.AreEqual(96, bounds.Width);
-        Assert.AreEqual(360, bounds.Height);
-        Assert.AreEqual(1920 - 96, bounds.X);
-        Assert.AreEqual(340, bounds.Y);
+        Assert.AreEqual(112, bounds.Width);
+        Assert.AreEqual(560, bounds.Height);
+        Assert.AreEqual(1920 - 112, bounds.X);
+        Assert.AreEqual(240, bounds.Y);
     }
 
     [TestMethod]
@@ -24,10 +24,10 @@ public sealed class EdgeWindowLayoutTests
     {
         var bounds = EdgeWindowLayout.Calculate(WorkArea, 120, EdgeSide.Left, 0);
 
-        Assert.AreEqual(120, bounds.Width);
-        Assert.AreEqual(450, bounds.Height);
+        Assert.AreEqual(140, bounds.Width);
+        Assert.AreEqual(700, bounds.Height);
         Assert.AreEqual(0, bounds.X);
-        Assert.AreEqual(295, bounds.Y);
+        Assert.AreEqual(170, bounds.Y);
     }
 
     [TestMethod]

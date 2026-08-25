@@ -1,5 +1,8 @@
 using System.Diagnostics;
+using System.Numerics;
 using System.Runtime.InteropServices;
+using Microsoft.UI.Composition.SystemBackdrops;
+using Microsoft.UI.Composition;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -7,6 +10,8 @@ using Microsoft.UI.Xaml.Media;
 using NyKurEdge.Core.Display;
 using NyKurEdge.Core.Settings;
 using Windows.Graphics;
+using Windows.UI;
+using WinRT;
 
 namespace NyKurEdge.App.Presentation.Edge;
 
@@ -41,9 +46,12 @@ public sealed class EdgeWindowController : IDisposable
     private readonly AppWindow _appWindow;
     private readonly IntPtr _windowHandle;
     private readonly SystemBackdrop? _expandedBackdrop;
+    private readonly DesktopAcrylicController? _acrylicController;
+    private readonly SystemBackdropConfiguration? _backdropConfiguration;
     private readonly DispatcherQueueTimer _animationTimer;
     private readonly DispatcherQueueTimer _displayPollTimer;
     private readonly Stopwatch _animationClock = new();
+    private readonly NativeEdgeCompositionHost? _nativeOverlay;
     private readonly bool _visualInspectionMode;
 #if NYKUR_EDGE_VISUAL_TEST
     private EdgeSide? _visualInspectionSide;
@@ -54,7 +62,7 @@ public sealed class EdgeWindowController : IDisposable
     private double _progress;
     private bool _isSettingsInteractive;
     private bool _isPinnedInteractive;
-    private bool _isBackdropApplied;
+    private bool _isExpandedBackdropApplied;
     private bool _canApplyAdaptiveRegion;
     private bool _windowRegionApplied;
     private int _regionWidth;
@@ -62,6 +70,8 @@ public sealed class EdgeWindowController : IDisposable
     private EdgeSide _regionSide;
     private int _regionThickness;
     private int _regionProgressBucket = -1;
+    private int _regionNotificationBucket = -1;
+    private double _notificationExpansion;
     private bool _disposed;
 
     public EdgeWindowController(
@@ -75,8 +85,29 @@ public sealed class EdgeWindowController : IDisposable
         _appWindow = window.AppWindow;
         _windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         _expandedBackdrop = window.SystemBackdrop;
-        _isBackdropApplied = _expandedBackdrop is not null;
+        if (DesktopAcrylicController.IsSupported())
+        {
+            _backdropConfiguration = new SystemBackdropConfiguration
+            {
+                IsInputActive = true,
+                Theme = SystemBackdropTheme.Dark,
+            };
+            _acrylicController = new DesktopAcrylicController();
+            window.SystemBackdrop = null;
+            _acrylicController.AddSystemBackdropTarget(
+                window.As<ICompositionSupportsSystemBackdrop>());
+            _acrylicController.SetSystemBackdropConfiguration(_backdropConfiguration);
+        }
+        _isExpandedBackdropApplied = _expandedBackdrop is not null;
         _display = displayService.GetPrimaryDisplay();
+        _nativeOverlay = NativeEdgeCompositionHost.TryCreate();
+        if (_nativeOverlay is not null)
+        {
+            _nativeOverlay.PointerEntered += OnNativeOverlayPointerEntered;
+            _nativeOverlay.PointerExited += OnNativeOverlayPointerExited;
+            _nativeOverlay.Clicked += OnNativeOverlayClicked;
+            _nativeOverlay.SecondaryClicked += OnNativeOverlaySecondaryClicked;
+        }
 #if NYKUR_EDGE_VISUAL_TEST
         _visualInspectionMode = true;
 #elif DEBUG
@@ -84,6 +115,8 @@ public sealed class EdgeWindowController : IDisposable
             Environment.GetEnvironmentVariable("NYKUR_EDGE_VISUAL_TEST"),
             "1",
             StringComparison.Ordinal);
+#else
+        _visualInspectionMode = false;
 #endif
 
         ConfigurePresenter();
@@ -105,6 +138,14 @@ public sealed class EdgeWindowController : IDisposable
     }
 
     public event EventHandler<double>? ExpansionProgressChanged;
+
+    public event EventHandler? CollapsedPointerEntered;
+
+    public event EventHandler? CollapsedPointerExited;
+
+    public event EventHandler? CollapsedClicked;
+
+    public event EventHandler? CollapsedSecondaryClicked;
 
     public bool IsExpanded => _progress >= 0.999;
 
@@ -159,6 +200,7 @@ public sealed class EdgeWindowController : IDisposable
         _visualInspectionSide = side;
         UpdateBounds(_progress);
     }
+
 #endif
 
     public void SetExpanded(bool expanded, bool immediate = false)
@@ -214,6 +256,48 @@ public sealed class EdgeWindowController : IDisposable
         UpdateInteractionActivation();
     }
 
+    public void SetNotificationExpansion(double progress)
+    {
+        ThrowIfDisposed();
+        progress = Math.Clamp(progress, 0, 1);
+        if (Math.Abs(progress - _notificationExpansion) < 0.006)
+        {
+            return;
+        }
+
+        _notificationExpansion = progress;
+        if (_canApplyAdaptiveRegion && _regionWidth > 0 && _regionHeight > 0)
+        {
+            ApplyWindowRegion(_regionWidth, _regionHeight, _progress);
+        }
+    }
+
+    internal void RenderCollapsedEdge(
+        Vector2[] primary,
+        Vector2[] secondary,
+        Vector2[] interference,
+        Vector2[] filament,
+        Color accent,
+        EdgeOrbScale orbScale,
+        double notificationProgress,
+        float energy)
+    {
+        if (_nativeOverlay is null || _disposed)
+        {
+            return;
+        }
+
+        _nativeOverlay.Render(
+            primary,
+            secondary,
+            interference,
+            filament,
+            accent,
+            orbScale,
+            notificationProgress,
+            energy);
+    }
+
     public void CloseWindow()
     {
         ThrowIfDisposed();
@@ -233,6 +317,16 @@ public sealed class EdgeWindowController : IDisposable
         _displayPollTimer.Stop();
         _displayPollTimer.Tick -= OnDisplayPollTick;
         _window.Activated -= OnWindowActivated;
+        if (_nativeOverlay is not null)
+        {
+            _nativeOverlay.PointerEntered -= OnNativeOverlayPointerEntered;
+            _nativeOverlay.PointerExited -= OnNativeOverlayPointerExited;
+            _nativeOverlay.Clicked -= OnNativeOverlayClicked;
+            _nativeOverlay.SecondaryClicked -= OnNativeOverlaySecondaryClicked;
+            _nativeOverlay.Dispose();
+        }
+        _acrylicController?.RemoveAllSystemBackdropTargets();
+        _acrylicController?.Dispose();
     }
 
     private void ConfigurePresenter()
@@ -306,8 +400,16 @@ public sealed class EdgeWindowController : IDisposable
             sizeof(uint));
     }
 
-    private void OnWindowActivated(object sender, WindowActivatedEventArgs args) =>
+    private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
+    {
+        if (_backdropConfiguration is not null)
+        {
+            _backdropConfiguration.IsInputActive =
+                args.WindowActivationState != WindowActivationState.Deactivated;
+        }
+
         SuppressNativeFrame();
+    }
 
     private void OnAnimationTick(DispatcherQueueTimer sender, object args)
     {
@@ -345,6 +447,16 @@ public sealed class EdgeWindowController : IDisposable
             _display.Dpi,
             EffectiveSide,
             expansionProgress);
+        if (_nativeOverlay is not null)
+        {
+            var collapsedBounds = EdgeWindowLayout.Calculate(
+                _display.WorkArea,
+                _display.Dpi,
+                EffectiveSide,
+                0);
+            _nativeOverlay.UpdateBounds(collapsedBounds, _display.Dpi, EffectiveSide);
+            _nativeOverlay.SetExpansionProgress(expansionProgress);
+        }
         _appWindow.MoveAndResize(new RectInt32(bounds.X, bounds.Y, bounds.Width, bounds.Height));
         SetBackdropVisible(expansionProgress > 0.001);
         if (_canApplyAdaptiveRegion)
@@ -367,6 +479,7 @@ public sealed class EdgeWindowController : IDisposable
     {
         var progress = Math.Clamp(expansionProgress, 0, 1);
         var progressBucket = (int)Math.Round(progress * 60);
+        var notificationBucket = (int)Math.Round(_notificationExpansion * 30);
         var side = EffectiveSide;
         var thickness = _settings.Current.Appearance.EdgeThickness;
         if (_windowRegionApplied &&
@@ -374,7 +487,8 @@ public sealed class EdgeWindowController : IDisposable
             height == _regionHeight &&
             side == _regionSide &&
             thickness == _regionThickness &&
-            progressBucket == _regionProgressBucket)
+            progressBucket == _regionProgressBucket &&
+            notificationBucket == _regionNotificationBucket)
         {
             return;
         }
@@ -386,24 +500,35 @@ public sealed class EdgeWindowController : IDisposable
             return;
         }
 
-        var fluidField = CreateFluidFieldRegion(width, height, side, scale);
-        UnionRegion(composite, fluidField);
+        var useNativeCollapsedSurface = _nativeOverlay is not null && progress <= 0.001;
+        if (!useNativeCollapsedSurface)
+        {
+            var fluidField = CreateFluidFieldRegion(width, height, side, scale);
+            UnionRegion(composite, fluidField);
+        }
 
-        var orbHalfWidth = Math.Max(1, (int)Math.Round(24 * scale));
-        var orbHalfHeight = Math.Max(1, (int)Math.Round(23 * scale));
+        var orbHalfWidth = Math.Max(
+            1,
+            (int)Math.Round((24 + (26 * _notificationExpansion)) * scale));
+        var orbHalfHeight = Math.Max(
+            1,
+            (int)Math.Round((23 + (7 * _notificationExpansion)) * scale));
         var centerY = height / 2;
-        var orb = side == EdgeSide.Right
-            ? CreateEllipticRegion(
-                width - orbHalfWidth,
-                centerY - orbHalfHeight,
-                width + orbHalfWidth,
-                centerY + orbHalfHeight)
-            : CreateEllipticRegion(
-                -orbHalfWidth,
-                centerY - orbHalfHeight,
-                orbHalfWidth,
-                centerY + orbHalfHeight);
-        UnionRegion(composite, orb);
+        if (!useNativeCollapsedSurface || _notificationExpansion > 0.035)
+        {
+            var orb = side == EdgeSide.Right
+                ? CreateEllipticRegion(
+                    width - orbHalfWidth,
+                    centerY - orbHalfHeight,
+                    width + orbHalfWidth,
+                    centerY + orbHalfHeight)
+                : CreateEllipticRegion(
+                    -orbHalfWidth,
+                    centerY - orbHalfHeight,
+                    orbHalfWidth,
+                    centerY + orbHalfHeight);
+            UnionRegion(composite, orb);
+        }
 
         if (progress > 0.001)
         {
@@ -423,6 +548,7 @@ public sealed class EdgeWindowController : IDisposable
         _regionSide = side;
         _regionThickness = thickness;
         _regionProgressBucket = progressBucket;
+        _regionNotificationBucket = notificationBucket;
     }
 
     private static IntPtr CreateFluidFieldRegion(
@@ -432,30 +558,44 @@ public sealed class EdgeWindowController : IDisposable
         double scale)
     {
         const int profilePointCount = 73;
-        var points = new NativePoint[profilePointCount + 2];
-        var edgeX = side == EdgeSide.Right ? width : 0;
-        points[0] = new NativePoint(edgeX, 0);
+        var points = new NativePoint[profilePointCount * 2];
 
         for (var index = 0; index < profilePointCount; index++)
         {
             var normalizedY = index / (double)(profilePointCount - 1);
-            var centerEnvelope = Gaussian(normalizedY, 0.5, 3.55);
-            var orbChannel = Gaussian(normalizedY, 0.5, 18.5);
+            var edgeFade = SmootherStep(Math.Clamp(normalizedY / 0.105, 0, 1)) *
+                           SmootherStep(Math.Clamp((1 - normalizedY) / 0.105, 0, 1));
+            var centerEnvelope = Gaussian(normalizedY, 0.5, 2.05);
+            var presence = edgeFade * (0.17 + (0.83 * centerEnvelope));
+            var orbChannel = Gaussian(normalizedY, 0.5, 15.8);
             var orbShoulders =
-                Gaussian(normalizedY, 0.43, 24.0) +
-                Gaussian(normalizedY, 0.57, 24.0);
-            var reachDip = 1.2 +
-                           (44 * centerEnvelope * (1 - (orbChannel * 0.72))) +
-                           (8.5 * orbShoulders);
-            var reach = Math.Clamp((int)Math.Round(reachDip * scale), 1, width);
+                Gaussian(normalizedY, 0.435, 20.5) +
+                Gaussian(normalizedY, 0.565, 20.5);
+            var distantFlow =
+                Gaussian(normalizedY, 0.285, 9.6) +
+                Gaussian(normalizedY, 0.715, 9.6);
+            var profileReachDip = presence *
+                                  (2.4 +
+                                   (21.5 * centerEnvelope) +
+                                   (4.8 * orbShoulders) +
+                                   (2.8 * distantFlow)) *
+                                  (1 - (orbChannel * 0.36));
+            var ribbonHalfWidthDip = 6.5 * Math.Sqrt(Math.Max(0, presence));
+            var outerReachDip = profileReachDip + ribbonHalfWidthDip + presence;
+            var innerReachDip = Math.Max(0, profileReachDip - ribbonHalfWidthDip);
+            var outerReach = Math.Clamp((int)Math.Ceiling(outerReachDip * scale), 0, width);
+            var innerReach = Math.Clamp((int)Math.Floor(innerReachDip * scale), 0, width);
             var y = Math.Clamp((int)Math.Round(normalizedY * (height - 1)), 0, height - 1);
 
-            points[index + 1] = new NativePoint(
-                side == EdgeSide.Right ? width - reach : reach,
+            points[index] = new NativePoint(
+                side == EdgeSide.Right ? width - outerReach : outerReach,
+                y);
+            var mirroredIndex = points.Length - 1 - index;
+            points[mirroredIndex] = new NativePoint(
+                side == EdgeSide.Right ? width - innerReach : innerReach,
                 y);
         }
 
-        points[^1] = new NativePoint(edgeX, height);
         return CreatePolygonRegion(points, points.Length, AlternateFillMode);
     }
 
@@ -540,17 +680,65 @@ public sealed class EdgeWindowController : IDisposable
 
     private void SetBackdropVisible(bool visible)
     {
-        if (_isBackdropApplied == visible || _expandedBackdrop is null)
+        if (_isExpandedBackdropApplied == visible)
         {
             return;
         }
 
-        _window.SystemBackdrop = visible ? _expandedBackdrop : null;
-        _isBackdropApplied = visible;
+        if (_acrylicController is not null)
+        {
+            ConfigureAcrylicMaterial(visible);
+        }
+        else if (_expandedBackdrop is not null)
+        {
+            // Older supported Windows builds retain the XAML backdrop rather
+            // than exposing the opaque no-material fallback.
+            _window.SystemBackdrop = _expandedBackdrop;
+        }
+        _isExpandedBackdropApplied = visible;
     }
+
+    private void ConfigureAcrylicMaterial(bool expanded)
+    {
+        if (_acrylicController is null)
+        {
+            return;
+        }
+
+        _acrylicController.ResetProperties();
+        _acrylicController.Kind = expanded ? DesktopAcrylicKind.Base : DesktopAcrylicKind.Thin;
+        if (expanded)
+        {
+            _acrylicController.TintColor = Windows.UI.Color.FromArgb(255, 7, 11, 17);
+            _acrylicController.TintOpacity = 0.72f;
+            _acrylicController.LuminosityOpacity = 0.62f;
+            _acrylicController.FallbackColor = Windows.UI.Color.FromArgb(255, 9, 13, 19);
+            return;
+        }
+
+        _acrylicController.TintOpacity = 0f;
+    }
+
+    private void OnNativeOverlayPointerEntered(object? sender, EventArgs args) =>
+        CollapsedPointerEntered?.Invoke(this, EventArgs.Empty);
+
+    private void OnNativeOverlayPointerExited(object? sender, EventArgs args) =>
+        CollapsedPointerExited?.Invoke(this, EventArgs.Empty);
+
+    private void OnNativeOverlayClicked(object? sender, EventArgs args) =>
+        CollapsedClicked?.Invoke(this, EventArgs.Empty);
+
+    private void OnNativeOverlaySecondaryClicked(object? sender, EventArgs args) =>
+        CollapsedSecondaryClicked?.Invoke(this, EventArgs.Empty);
 
     private static double Gaussian(double value, double center, double sharpness) =>
         Math.Exp(-Math.Pow((value - center) * sharpness, 2));
+
+    private static double SmootherStep(double value)
+    {
+        value = Math.Clamp(value, 0, 1);
+        return value * value * value * ((value * ((value * 6) - 15)) + 10);
+    }
 
     private void ThrowIfDisposed()
     {

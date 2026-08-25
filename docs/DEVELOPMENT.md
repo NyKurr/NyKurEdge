@@ -78,12 +78,22 @@ For meaningful changes:
 The optional `NyKurEdgeVisualTest=true` MSBuild property creates a Debug-only,
 targetable Edge window for bounded automation. Its compile-only accelerators are:
 
+- `F1`: cycle pressure-field intensity;
+- `F2`: cycle vertical reach/falloff;
+- `F3`: cycle half-orb scale;
+- `F4`: cycle compact shell geometry;
+- `F5`: cycle calm/medium/expressive fluid character;
 - `F6`: toggle idle/playing motion;
 - `F7`: preview the notification orb/icon/ripple sequence;
 - `F8`: cycle restrained accent samples;
 - `F9`: toggle collapsed/expanded presentation;
-- `F10`: mirror right/left placement.
-- `F11`: toggle the intentional orb launcher/pinned state.
+- `F10`: mirror right/left placement;
+- `F11`: toggle the intentional orb launcher/pinned state;
+- `F12`: preview the clock glance.
+
+In visual-test builds, right-clicking the native orb cycles a compact sequence of
+notification, side, and accent checks. In production it remains a minimal settings
+entry point. These controls are compiled out of normal Release behavior.
 
 It must not be used as the normal runtime configuration. Always close the test
 window and verify no `NyKurEdge.App`/`winapp` process remains after inspection.
