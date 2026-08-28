@@ -7,10 +7,12 @@
 - Core tests for accent selection, event subscriptions, settings persistence and
   normalization, rapid hover state, media source names, notification filtering,
   privacy previews, glance/pin-safe interaction state, and adaptive edge geometry.
-- Native per-pixel-alpha idle composition: the desktop remains visible beneath the
-  pressure field with no black slab, rectangular fill, or visible window boundary.
-- Correct native HWND creation and frame delivery, including explicit
-  `WM_NCCREATE` acceptance and a one-pixel WinUI render keep-alive.
+- Visible transparent Win2D idle presentation: the desktop remains visible beneath
+  the pressure field with no intentional black slab or rectangular fill.
+- Native HWND creation and frame delivery, including explicit `WM_NCCREATE`
+  acceptance, are implemented behind a development opt-in. That target is not the
+  production default because it can report successful frames while presenting no
+  visible pixels on at least one tested Windows/GPU path.
 - Vertically extended spring-interpolated contours with long falloff, seventeen
   fine filaments, restrained radial pressure/bloom layers, and a stable
   half-embedded optical mesh orb.
@@ -37,12 +39,15 @@
   browser notifications, plus fresh end-to-end capture of the native pulse path.
 - StartupTask transitions across all Windows user-controlled startup states.
 - DPI/resolution changes while the process remains active for many hours.
-- Long-session performance profiling of the native composition path, including
-  older GPUs, remote-desktop sessions, and native-host fallback behavior.
+- Native composition visibility/compatibility across GPUs, Windows builds,
+  remote-desktop sessions, and display-driver paths before production enablement.
+- Long-session performance profiling of both the Win2D production path and the
+  experimental native composition path.
 
-The current short Debug/playing sample used about `24.7%` of one logical core and
-held private memory near `106 MiB`, with no growth across the sample. This is a
-bounded sanity check, not a substitute for the long-session/GPU matrix above.
+The prior short native Debug/playing sample used about `24.7%` of one logical core
+and held private memory near `106 MiB`, with no growth across the sample. That is a
+bounded native-path sanity check, not a measurement of the current production
+Win2D path or a substitute for the long-session/GPU matrix above.
 
 ## Intentionally deferred
 

@@ -65,19 +65,21 @@ sources during shutdown.
 - `EdgeWindowLayout` sizes the collapsed field independently from the contextual
   surface (`112 × 720` DIPs and `432 × 318` DIPs respectively). Taskbar-adjusted
   work-area bounds and effective DPI remain the source of physical placement.
-- `NativeEdgeCompositionHost` owns a separate `WS_EX_NOREDIRECTIONBITMAP`
-  no-activation tool window for the collapsed phenomenon. A desktop composition
-  target supplies real per-pixel alpha, while `WM_NCHITTEST` admits input only on
-  the orb and nearby visible field.
-- The WinUI HWND retains one transparent keep-alive pixel while the native host is
-  available. This keeps Win2D's frame producer alive without making the large
-  underlying bounds painted or interactive. Its region grows only during the
-  bloom or a notification event, then follows the compact contextual shell.
+- The production collapsed phenomenon is drawn by the transparent Win2D surface.
+  The WinUI HWND region follows the visible fluid field and orb instead of exposing
+  an interactive full-height rectangle.
+- `NativeEdgeCompositionHost` contains an experimental separate
+  `WS_EX_NOREDIRECTIONBITMAP` no-activation tool window. It is enabled only when
+  `NYKUR_EDGE_NATIVE_COMPOSITION=1`; this prevents a native target that accepts
+  frames but presents no pixels on some systems from making the product invisible.
+- While that native target is explicitly enabled, the WinUI HWND retains one
+  transparent keep-alive pixel so Win2D can continue producing frame geometry
+  without painting a duplicate surface.
 - The native class procedure explicitly accepts `WM_NCCREATE`; returning zero at
   that point aborts `CreateWindowEx` and previously caused a silent Win2D fallback.
-- Desktop acrylic belongs only to the expanded WinUI shell. The native idle host
-  stays transparent and fades while the shell establishes itself, preserving a
-  continuous orb-to-panel transition.
+- Desktop acrylic belongs only to the expanded WinUI shell. The transparent idle
+  renderer fades while the shell establishes itself, preserving a continuous
+  orb-to-panel transition.
 - A four-second low-frequency display poll catches resolution, work-area, and DPI
   changes without an idle render loop.
 
@@ -97,17 +99,17 @@ dissipating upper/lower tails. Notification travel, pressure displacement, playi
 energy, and expansion progress all enter the same field model instead of being
 unrelated overlay effects.
 
-`NativeEdgeCompositionHost` converts those points into bounded Win2D path geometries
-and system composition shapes: faint pressure strokes, accent filament families,
-a neutral edge anchor, radial atmospheric bloom, and a layered optical half-lens
-with nested refractive mesh arcs. Geometry is refreshed at a capped 60 Hz only when
-the renderer produces a frame; sample arrays, brushes, and accent ramps are reused,
-and the hidden Win2D mirror is not redundantly drawn while the native surface is
-active.
+`EdgeWaveRenderer` draws those points on the production Win2D surface as faint
+pressure fields, accent filament families, a neutral edge anchor, atmospheric
+bloom, and a layered optical half-lens. The experimental
+`NativeEdgeCompositionHost` consumes the same bounded frame model and converts it
+to system-composition shapes, so it can be compatibility-tested without forking the
+simulation or presentation state. When explicitly active, the Win2D mirror is not
+redundantly drawn.
 The orb center and outer radius stay geometrically fixed in idle—only low-amplitude
 internal refraction changes—so ambient breathing does not introduce positional
-micro-jitter. The XAML canvas remains a fallback for systems where the native
-composition host cannot be created.
+micro-jitter. The Win2D canvas is the visible default until native presentation
+compatibility is demonstrated across the target hardware matrix.
 
 `EdgeInteractionStateMachine` distinguishes transient pointer preview from an
 intentional pinned-open launcher state. The visible half-orb is the click target;

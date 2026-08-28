@@ -23,6 +23,7 @@ namespace NyKurEdge.App.Presentation.Edge;
 /// </summary>
 internal sealed class NativeEdgeCompositionHost : IDisposable
 {
+    private const string NativeCompositionOptInVariable = "NYKUR_EDGE_NATIVE_COMPOSITION";
     private const int OrbMeshStrandCount = 7;
     private const int WindowLongUserData = -21;
     private const uint WindowStylePopup = 0x80000000;
@@ -310,6 +311,20 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
 
     public static NativeEdgeCompositionHost? TryCreate()
     {
+        // The no-redirection composition target can be created and accept frame
+        // updates while still presenting no pixels on some Windows/GPU paths.
+        // Keep the proven transparent Win2D surface as the production default
+        // until that compatibility matrix is validated. Developers can opt in
+        // explicitly without putting normal users behind an invisible surface.
+        if (!string.Equals(
+                Environment.GetEnvironmentVariable(NativeCompositionOptInVariable),
+                "1",
+                StringComparison.Ordinal))
+        {
+            LastFailure = "Native composition disabled pending compatibility validation";
+            return null;
+        }
+
 #if NYKUR_EDGE_VISUAL_TEST
         var scenarioPath = Path.Combine(AppContext.BaseDirectory, "nykur-edge.visual-test");
         try

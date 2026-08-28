@@ -13,8 +13,8 @@ WinUI 3 application, not a browser shell or throwaway prototype.
 - Borderless, topmost Edge window that stays out of Alt+Tab and does not activate
   merely because it appears.
 - DPI-aware left/right anchoring to the primary monitor work area.
-- A native per-pixel-alpha composition surface for the idle wave and orb, so the
-  desktop remains visible with no XAML/window-colored slab behind the effect.
+- A transparent Win2D idle surface for the wave and orb, with the desktop visible
+  behind the effect and no intentional XAML/window-colored slab.
 - Seventeen layered filaments over separated pressure, contour, interference,
   and edge-anchor traces, with restrained radial bloom and a deliberate optical
   half-orb whose center sits on the display boundary.
@@ -86,6 +86,12 @@ built executable. Comma-separated tokens such as `playing`, `notification`,
 `expanded`, `left`, `purple`, `orange`, `rose`, `neutral`, and `fallback` select a
 deterministic passive state; `fallback` explicitly exercises the Win2D mirror.
 This marker is a local QA artifact and must not be committed or shipped.
+
+An experimental native no-redirection composition target remains available for
+compatibility work by setting `NYKUR_EDGE_NATIVE_COMPOSITION=1` before direct
+development launch. It is deliberately opt-in: some Windows/GPU combinations can
+accept native frames without presenting visible pixels, while the Win2D surface is
+the currently validated production path.
 
 ## Notification setup
 

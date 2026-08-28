@@ -102,5 +102,11 @@ to the built AppX executable. It accepts comma-separated tokens: `playing`,
 mirror can be compared. The marker also prevents QA activation; delete it when the
 capture is finished. This file belongs only in ignored build output.
 
+The native no-redirection target is experimental and disabled by default. For a
+direct development-only compatibility run, set
+`NYKUR_EDGE_NATIVE_COMPOSITION=1` before launch. A successful host creation or
+frame counter is not sufficient validation; confirm that pixels are actually
+visible on the desktop. Normal builds should use the Win2D path.
+
 It must not be used as the normal runtime configuration. Always close the test
 window and verify no `NyKurEdge.App`/`winapp` process remains after inspection.
