@@ -15,8 +15,9 @@ WinUI 3 application, not a browser shell or throwaway prototype.
 - DPI-aware left/right anchoring to the primary monitor work area.
 - A native per-pixel-alpha composition surface for the idle wave and orb, so the
   desktop remains visible with no XAML/window-colored slab behind the effect.
-- Layered pressure, contour, interference, and filament traces with restrained
-  bloom and a deliberate half-orb whose center sits on the display boundary.
+- Seventeen layered filaments over separated pressure, contour, interference,
+  and edge-anchor traces, with restrained radial bloom and a deliberate optical
+  half-orb whose center sits on the display boundary.
 - Cubic-eased hover preview plus click-to-pin launcher behavior; the glass shell
   grows from the orb and keeps a collapse grace period.
 - Windows global media-session discovery, live metadata, artwork, timeline, and
@@ -25,8 +26,8 @@ WinUI 3 application, not a browser shell or throwaway prototype.
   chroma/lightness normalization.
 - Persisted manual accent mode with a native WinUI color picker.
 - Sparse procedural signal targets with continuously spring-interpolated rendering,
-  bounded geometry reuse, and an explicit seam for future real audio data; the
-  current motion is not audio-reactive.
+  reused sample buffers, bounded transient geometry lifetime, and an explicit seam
+  for future real audio data; the current motion is not audio-reactive.
 - Generic glance coordinator and scheduled/previewable clock glance.
 - Supported `UserNotificationListener` integration, source filtering, privacy
   levels, permission state, notification preview state, and a bubble/icon/ripple
@@ -78,6 +79,13 @@ dotnet build src\NyKurEdge.App\NyKurEdge.App.csproj --configuration Debug -p:NyK
 ```
 
 Rebuild without that property before normal use.
+
+Packaged activation may not inherit shell environment variables. A visual-test
+build can therefore read an optional `nykur-edge.visual-test` marker beside the
+built executable. Comma-separated tokens such as `playing`, `notification`,
+`expanded`, `left`, `purple`, `orange`, `rose`, `neutral`, and `fallback` select a
+deterministic passive state; `fallback` explicitly exercises the Win2D mirror.
+This marker is a local QA artifact and must not be committed or shipped.
 
 ## Notification setup
 

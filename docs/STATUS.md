@@ -9,11 +9,13 @@
   privacy previews, glance/pin-safe interaction state, and adaptive edge geometry.
 - Native per-pixel-alpha idle composition: the desktop remains visible beneath the
   pressure field with no black slab, rectangular fill, or visible window boundary.
-- Vertically extended spring-interpolated contours with long falloff, restrained
-  pressure strokes, and a stable half-embedded optical orb.
+- Correct native HWND creation and frame delivery, including explicit
+  `WM_NCCREATE` acceptance and a one-pixel WinUI render keep-alive.
+- Vertically extended spring-interpolated contours with long falloff, seventeen
+  fine filaments, restrained radial pressure/bloom layers, and a stable
+  half-embedded optical mesh orb.
 - Mirrored right and left inward-flowing geometry validated at runtime, with
   deterministic 100% and 125% layout/DPI coverage in core tests.
-- Deterministic 100% and 125% layout/DPI coverage in core tests.
 - Layered fluid traces, glass orb, idle breathing, and restrained playing motion.
 - Hover preview and click-to-pin launcher states with an organic acrylic capsule
   bloom around the existing practical content surface.
@@ -37,6 +39,10 @@
 - DPI/resolution changes while the process remains active for many hours.
 - Long-session performance profiling of the native composition path, including
   older GPUs, remote-desktop sessions, and native-host fallback behavior.
+
+The current short Debug/playing sample used about `24.7%` of one logical core and
+held private memory near `106 MiB`, with no growth across the sample. This is a
+bounded sanity check, not a substitute for the long-session/GPU matrix above.
 
 ## Intentionally deferred
 

@@ -95,5 +95,12 @@ In visual-test builds, right-clicking the native orb cycles a compact sequence o
 notification, side, and accent checks. In production it remains a minimal settings
 entry point. These controls are compiled out of normal Release behavior.
 
+For passive packaged QA, place a temporary `nykur-edge.visual-test` text file next
+to the built AppX executable. It accepts comma-separated tokens: `playing`,
+`notification`, `expanded`, `left`, `purple`, `orange`, `rose`, `neutral`, and
+`fallback`. The last token deliberately disables the native target so its Win2D
+mirror can be compared. The marker also prevents QA activation; delete it when the
+capture is finished. This file belongs only in ignored build output.
+
 It must not be used as the normal runtime configuration. Always close the test
 window and verify no `NyKurEdge.App`/`winapp` process remains after inspection.

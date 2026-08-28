@@ -63,16 +63,18 @@ sources during shutdown.
   remain usable.
 - Bounds are derived from the selected display's work area and effective DPI.
 - `EdgeWindowLayout` sizes the collapsed field independently from the contextual
-  surface (`112 × 560` DIPs and `432 × 318` DIPs respectively). Taskbar-adjusted
+  surface (`112 × 720` DIPs and `432 × 318` DIPs respectively). Taskbar-adjusted
   work-area bounds and effective DPI remain the source of physical placement.
 - `NativeEdgeCompositionHost` owns a separate `WS_EX_NOREDIRECTIONBITMAP`
   no-activation tool window for the collapsed phenomenon. A desktop composition
   target supplies real per-pixel alpha, while `WM_NCHITTEST` admits input only on
   the orb and nearby visible field.
-- The WinUI HWND has an empty collapsed region when the native host is available.
-  Its region grows only during the bloom or a notification event, then follows
-  the compact contextual shell. The large underlying bounds are therefore neither
-  painted nor interactive while idle.
+- The WinUI HWND retains one transparent keep-alive pixel while the native host is
+  available. This keeps Win2D's frame producer alive without making the large
+  underlying bounds painted or interactive. Its region grows only during the
+  bloom or a notification event, then follows the compact contextual shell.
+- The native class procedure explicitly accepts `WM_NCCREATE`; returning zero at
+  that point aborts `CreateWindowEx` and previously caused a silent Win2D fallback.
 - Desktop acrylic belongs only to the expanded WinUI shell. The native idle host
   stays transparent and fades while the shell establishes itself, preserving a
   continuous orb-to-panel transition.
@@ -89,15 +91,19 @@ no high-rate layout timer runs while idle.
 `EdgeWaveRenderer` separates sparse signal simulation from continuous visual
 presentation. Fifteen damped control nodes drift toward low-frequency procedural
 targets, and a bounded spring integrator interpolates them during compositor render
-ticks. Ninety-seven sampled points form four related contours with a broad center
-envelope and long, naturally dissipating upper/lower tails. Notification travel,
-pressure displacement, playing energy, and expansion progress all enter the same
-field model instead of being unrelated overlay effects.
+ticks. Seventy-three sampled points form four separated structural contours plus
+seventeen harmonized fine strands, with a broad center envelope and long, naturally
+dissipating upper/lower tails. Notification travel, pressure displacement, playing
+energy, and expansion progress all enter the same field model instead of being
+unrelated overlay effects.
 
-`NativeEdgeCompositionHost` converts those points into reusable Win2D geometries
-and system composition shapes: faint pressure strokes, accent contours, a neutral
-filament, and a layered optical half-lens. Geometry is refreshed only when the
-renderer produces a frame; brushes and accent ramps are cached between changes.
+`NativeEdgeCompositionHost` converts those points into bounded Win2D path geometries
+and system composition shapes: faint pressure strokes, accent filament families,
+a neutral edge anchor, radial atmospheric bloom, and a layered optical half-lens
+with nested refractive mesh arcs. Geometry is refreshed at a capped 60 Hz only when
+the renderer produces a frame; sample arrays, brushes, and accent ramps are reused,
+and the hidden Win2D mirror is not redundantly drawn while the native surface is
+active.
 The orb center and outer radius stay geometrically fixed in idle—only low-amplitude
 internal refraction changes—so ambient breathing does not introduce positional
 micro-jitter. The XAML canvas remains a fallback for systems where the native

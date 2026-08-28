@@ -7,7 +7,7 @@ public readonly record struct EdgeWindowBounds(int X, int Y, int Width, int Heig
 public static class EdgeWindowLayout
 {
     public const double CollapsedWidthDip = 112;
-    public const double CollapsedHeightDip = 560;
+    public const double CollapsedHeightDip = 720;
     public const double ExpandedWidthDip = 432;
     public const double ExpandedHeightDip = 318;
 

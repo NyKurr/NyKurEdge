@@ -120,6 +120,9 @@ public sealed partial class MainPage : Page, IDisposable
         _edgeRenderer.Start();
         _edgeRenderer.SetPlaying(ViewModel.IsPlaying);
         _edgeRenderer.SetIntensity(ViewModel.Settings.Appearance.AnimationIntensity);
+#if NYKUR_EDGE_VISUAL_TEST
+        ApplyVisualTestScenarioFromEnvironment();
+#endif
         ViewModel.RefreshNotificationAccess();
         _ = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().TryEnqueue(
             Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
@@ -459,6 +462,81 @@ public sealed partial class MainPage : Page, IDisposable
     }
 
 #if NYKUR_EDGE_VISUAL_TEST
+    private void ApplyVisualTestScenarioFromEnvironment()
+    {
+        var scenario = Environment.GetEnvironmentVariable("NYKUR_EDGE_VISUAL_SCENARIO");
+        if (string.IsNullOrWhiteSpace(scenario))
+        {
+            // Packaged WinApp activation does not reliably inherit the caller's
+            // environment. A build-output-local marker keeps passive screenshot
+            // scenarios deterministic without adding production settings or UI.
+            var scenarioPath = Path.Combine(AppContext.BaseDirectory, "nykur-edge.visual-test");
+            try
+            {
+                if (File.Exists(scenarioPath))
+                {
+                    scenario = File.ReadAllText(scenarioPath);
+                }
+            }
+            catch (IOException)
+            {
+                // Visual-test convenience must never prevent the app from opening.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Visual-test convenience must never prevent the app from opening.
+            }
+        }
+        if (string.IsNullOrWhiteSpace(scenario))
+        {
+            return;
+        }
+        scenario = scenario.Trim();
+
+        foreach (var token in scenario.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            switch (token.ToLowerInvariant())
+            {
+                case "playing":
+                    _visualTestPlaying = true;
+                    _edgeRenderer.SetPlaying(true);
+                    break;
+                case "notification":
+                    _visualTestNotificationContext = true;
+                    UpdateContextSurface();
+                    _edgeRenderer.TriggerNotificationPulse(timingScale: 4);
+                    break;
+                case "expanded":
+                    _visualTestExpanded = true;
+                    _windowController.SetExpanded(true, immediate: true);
+                    break;
+                case "left":
+                    _visualTestSide = EdgeSide.Left;
+                    ApplyEdgeSide(_visualTestSide);
+                    _windowController.SetVisualInspectionSide(_visualTestSide);
+                    break;
+                case "purple":
+                    _visualTestAccentIndex = 1;
+                    _accentController.TransitionTo(VisualTestAccents[_visualTestAccentIndex]);
+                    break;
+                case "orange":
+                    _visualTestAccentIndex = 2;
+                    _accentController.TransitionTo(VisualTestAccents[_visualTestAccentIndex]);
+                    break;
+                case "rose":
+                    _visualTestAccentIndex = 3;
+                    _accentController.TransitionTo(VisualTestAccents[_visualTestAccentIndex]);
+                    break;
+                case "neutral":
+                    _visualTestAccentIndex = 4;
+                    _accentController.TransitionTo(VisualTestAccents[_visualTestAccentIndex]);
+                    break;
+            }
+        }
+
+        _windowController.SetVisualInspectionStatus($"NyKur Edge QA · {scenario}");
+    }
+
     private void RegisterVisualTestAccelerator(VirtualKey key)
     {
         var accelerator = new KeyboardAccelerator { Key = key };

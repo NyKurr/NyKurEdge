@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Numerics;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Composition;
@@ -10,7 +9,6 @@ using Microsoft.UI.Xaml.Media;
 using NyKurEdge.Core.Display;
 using NyKurEdge.Core.Settings;
 using Windows.Graphics;
-using Windows.UI;
 using WinRT;
 
 namespace NyKurEdge.App.Presentation.Edge;
@@ -55,6 +53,7 @@ public sealed class EdgeWindowController : IDisposable
     private readonly bool _visualInspectionMode;
 #if NYKUR_EDGE_VISUAL_TEST
     private EdgeSide? _visualInspectionSide;
+    private bool _nativeFrameReported;
 #endif
     private DisplayInfo _display;
     private double _animationFrom;
@@ -149,10 +148,12 @@ public sealed class EdgeWindowController : IDisposable
 
     public bool IsExpanded => _progress >= 0.999;
 
+    internal bool HasNativeCollapsedSurface => _nativeOverlay is not null;
+
     public void ShowWithoutActivation()
     {
         ThrowIfDisposed();
-        if (_visualInspectionMode)
+        if (_visualInspectionMode && !IsPassiveVisualInspection())
         {
             ApplyNativeWindowStyles(noActivate: false);
             _appWindow.Show(activateWindow: true);
@@ -180,6 +181,13 @@ public sealed class EdgeWindowController : IDisposable
             SetWindowPositionShowWindow);
     }
 
+    private static bool IsPassiveVisualInspection() =>
+        string.Equals(
+            Environment.GetEnvironmentVariable("NYKUR_EDGE_VISUAL_TEST_PASSIVE"),
+            "1",
+            StringComparison.Ordinal) ||
+        File.Exists(Path.Combine(AppContext.BaseDirectory, "nykur-edge.visual-test"));
+
     public void EnableAdaptiveRegion()
     {
         ThrowIfDisposed();
@@ -191,7 +199,10 @@ public sealed class EdgeWindowController : IDisposable
     public void SetVisualInspectionStatus(string status)
     {
         ThrowIfDisposed();
-        _appWindow.Title = status;
+        var rendererStatus = _nativeOverlay is null
+            ? $"fallback ({NativeEdgeCompositionHost.LastFailure ?? "unknown"})"
+            : "native";
+        _appWindow.Title = $"{status} · {rendererStatus}";
     }
 
     public void SetVisualInspectionSide(EdgeSide side)
@@ -272,30 +283,22 @@ public sealed class EdgeWindowController : IDisposable
         }
     }
 
-    internal void RenderCollapsedEdge(
-        Vector2[] primary,
-        Vector2[] secondary,
-        Vector2[] interference,
-        Vector2[] filament,
-        Color accent,
-        EdgeOrbScale orbScale,
-        double notificationProgress,
-        float energy)
+    internal void RenderCollapsedEdge(EdgeFluidFrame frame)
     {
         if (_nativeOverlay is null || _disposed)
         {
             return;
         }
 
-        _nativeOverlay.Render(
-            primary,
-            secondary,
-            interference,
-            filament,
-            accent,
-            orbScale,
-            notificationProgress,
-            energy);
+#if NYKUR_EDGE_VISUAL_TEST
+        if (!_nativeFrameReported)
+        {
+            _appWindow.Title = $"{_appWindow.Title} · fed";
+            _nativeFrameReported = true;
+        }
+#endif
+
+        _nativeOverlay.Render(frame);
     }
 
     public void CloseWindow()
@@ -514,6 +517,17 @@ public sealed class EdgeWindowController : IDisposable
             1,
             (int)Math.Round((23 + (7 * _notificationExpansion)) * scale));
         var centerY = height / 2;
+        if (useNativeCollapsedSurface)
+        {
+            // An entirely empty region causes WinUI/Win2D to stop producing
+            // render callbacks, which also starves the independent native
+            // Composition target of geometry frames. Retain one transparent
+            // keep-alive pixel at the physical edge; the native HWND owns the
+            // actual visual and interaction profile.
+            var keepAliveX = side == EdgeSide.Right ? Math.Max(0, width - 1) : 0;
+            var keepAlive = CreateRectRegion(keepAliveX, centerY, keepAliveX + 1, centerY + 1);
+            UnionRegion(composite, keepAlive);
+        }
         if (!useNativeCollapsedSurface || _notificationExpansion > 0.035)
         {
             var orb = side == EdgeSide.Right

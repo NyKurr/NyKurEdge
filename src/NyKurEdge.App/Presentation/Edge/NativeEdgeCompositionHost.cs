@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Geometry;
 using NyKurEdge.Core.Display;
@@ -22,6 +23,7 @@ namespace NyKurEdge.App.Presentation.Edge;
 /// </summary>
 internal sealed class NativeEdgeCompositionHost : IDisposable
 {
+    private const int OrbMeshStrandCount = 7;
     private const int WindowLongUserData = -21;
     private const uint WindowStylePopup = 0x80000000;
     private const uint ExtendedStyleTopMost = 0x00000008;
@@ -50,6 +52,8 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
     private static readonly object RegistrationGate = new();
     private static bool _windowClassRegistered;
 
+    internal static string? LastFailure { get; private set; }
+
     private readonly CanvasDevice _canvasDevice;
     private readonly WUC.Compositor _compositor;
     private readonly WUCD.DesktopWindowTarget _target;
@@ -58,19 +62,40 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
     private readonly WUC.CompositionPathGeometry _secondaryPath;
     private readonly WUC.CompositionPathGeometry _interferencePath;
     private readonly WUC.CompositionPathGeometry _filamentPath;
+    private readonly WUC.CompositionPathGeometry[] _fineStrandPaths;
     private readonly WUC.CompositionPathGeometry _lensPath;
     private readonly WUC.CompositionPathGeometry _lensOutlinePath;
+    private readonly WUC.CompositionPathGeometry _lensInnerPath;
+    private readonly WUC.CompositionPathGeometry _lensCausticPath;
+    private readonly WUC.CompositionEllipseGeometry _ambientGlowGeometry;
+    private readonly WUC.CompositionEllipseGeometry _orbBloomGeometry;
+    private readonly WUC.CompositionEllipseGeometry _orbDepthGeometry;
     private readonly WUC.CompositionEllipseGeometry _orbNeutralGeometry;
     private readonly WUC.CompositionEllipseGeometry _orbAccentGeometry;
+    private readonly WUC.CompositionEllipseGeometry _orbRefractionGeometry;
     private readonly WUC.CompositionEllipseGeometry _orbHighlightGeometry;
+    private readonly WUC.CompositionEllipseGeometry _orbSparkGeometry;
+    private readonly WUC.CompositionEllipseGeometry[] _orbMeshGeometries;
     private readonly WUC.CompositionColorBrush _lensDarkBrush;
     private readonly WUC.CompositionColorBrush _lensAccentBrush;
     private readonly WUC.CompositionColorBrush _lensRimBrush;
+    private readonly WUC.CompositionBrush _ambientGlowBrush;
+    private readonly WUC.CompositionBrush _orbBloomBrush;
+    private readonly RadialGradientBinding? _ambientGlow;
+    private readonly RadialGradientBinding? _orbBloom;
+    private readonly WUC.CompositionColorBrush? _ambientGlowFallbackBrush;
+    private readonly WUC.CompositionColorBrush? _orbBloomFallbackBrush;
+    private readonly WUC.CompositionColorBrush _orbDepthBrush;
     private readonly WUC.CompositionColorBrush _orbNeutralBrush;
-    private readonly WUC.CompositionColorBrush _orbAccentBrush;
+    private readonly WUC.CompositionBrush _orbAccentBrush;
+    private readonly RadialGradientBinding? _orbAccentGradient;
+    private readonly WUC.CompositionColorBrush? _orbAccentFallbackBrush;
+    private readonly WUC.CompositionColorBrush _orbRefractionBrush;
     private readonly WUC.CompositionColorBrush _orbHighlightBrush;
+    private readonly WUC.CompositionColorBrush _orbSparkBrush;
     private readonly List<VerticalGradientBinding> _accentGradients = [];
     private readonly List<CanvasGeometry> _currentGeometries = [];
+    private readonly List<CanvasGeometry> _pendingGeometries = [];
     private readonly GCHandle _selfHandle;
     private readonly IntPtr _windowHandle;
     private double _dpiScale = 1;
@@ -78,6 +103,7 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
     private float _heightDip = 1;
     private double _expansionProgress;
     private Color _lastAccent;
+    private EdgePressureField _lastPressureField;
     private bool _hasAccent;
     private bool _isShown;
     private bool _pointerInside;
@@ -88,11 +114,17 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
     {
         EnsureWindowClass();
         _selfHandle = GCHandle.Alloc(this);
+        var extendedStyle = ExtendedStyleTopMost |
+                            ExtendedStyleToolWindow |
+                            ExtendedStyleNoActivate;
+#if !NYKUR_EDGE_VISUAL_TEST
+        // Production uses a redirection-free target so only Composition pixels
+        // exist on the desktop. QA keeps DWM redirection available because
+        // Windows.Graphics.Capture otherwise cannot inspect this HWND.
+        extendedStyle |= ExtendedStyleNoRedirectionBitmap;
+#endif
         _windowHandle = CreateWindowEx(
-            ExtendedStyleTopMost |
-            ExtendedStyleToolWindow |
-            ExtendedStyleNoActivate |
-            ExtendedStyleNoRedirectionBitmap,
+            extendedStyle,
             WindowClassName,
             string.Empty,
             WindowStylePopup,
@@ -135,39 +167,137 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
         _secondaryPath = _compositor.CreatePathGeometry();
         _interferencePath = _compositor.CreatePathGeometry();
         _filamentPath = _compositor.CreatePathGeometry();
+        _fineStrandPaths = new WUC.CompositionPathGeometry[EdgeWaveRenderer.FineStrandCount];
+        for (var index = 0; index < _fineStrandPaths.Length; index++)
+        {
+            _fineStrandPaths[index] = _compositor.CreatePathGeometry();
+        }
         _lensPath = _compositor.CreatePathGeometry();
         _lensOutlinePath = _compositor.CreatePathGeometry();
+        _lensInnerPath = _compositor.CreatePathGeometry();
+        _lensCausticPath = _compositor.CreatePathGeometry();
 
-        AddGradientStroke(_primaryPath, 12f, 5, neutral: false);
-        AddGradientStroke(_primaryPath, 6f, 11, neutral: false);
-        AddGradientStroke(_primaryPath, 2.8f, 20, neutral: false);
-        AddGradientStroke(_interferencePath, 0.78f, 30, neutral: false);
-        AddGradientStroke(_secondaryPath, 1.02f, 48, neutral: false);
-        AddGradientStroke(_primaryPath, 1.55f, 142, neutral: false);
-        AddGradientStroke(_primaryPath, 0.48f, 38, neutral: true);
-        AddGradientStroke(_filamentPath, 0.68f, 34, neutral: true);
+        _ambientGlowGeometry = _compositor.CreateEllipseGeometry();
+        _orbBloomGeometry = _compositor.CreateEllipseGeometry();
+        _orbDepthGeometry = _compositor.CreateEllipseGeometry();
+        _orbNeutralGeometry = _compositor.CreateEllipseGeometry();
+        _orbAccentGeometry = _compositor.CreateEllipseGeometry();
+        _orbRefractionGeometry = _compositor.CreateEllipseGeometry();
+        _orbHighlightGeometry = _compositor.CreateEllipseGeometry();
+        _orbSparkGeometry = _compositor.CreateEllipseGeometry();
+        _orbMeshGeometries = new WUC.CompositionEllipseGeometry[OrbMeshStrandCount];
+        for (var index = 0; index < _orbMeshGeometries.Length; index++)
+        {
+            _orbMeshGeometries[index] = _compositor.CreateEllipseGeometry();
+        }
 
-        AddSolidStroke(_lensOutlinePath, 12f, Color.FromArgb(14, 120, 180, 220));
-        AddSolidStroke(_lensOutlinePath, 4.2f, Color.FromArgb(25, 120, 180, 220));
+        // Broad, extremely low-alpha optical volume. These are localized shapes,
+        // never a rectangular backing surface.
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 18362))
+        {
+            _ambientGlow = new RadialGradientBinding(_compositor, centerAlpha: 18, shoulderAlpha: 6);
+            _orbBloom = new RadialGradientBinding(_compositor, centerAlpha: 27, shoulderAlpha: 9);
+            _ambientGlowBrush = _ambientGlow.Brush;
+            _orbBloomBrush = _orbBloom.Brush;
+        }
+        else
+        {
+            _ambientGlowFallbackBrush =
+                _compositor.CreateColorBrush(Color.FromArgb(2, 120, 180, 220));
+            _orbBloomFallbackBrush =
+                _compositor.CreateColorBrush(Color.FromArgb(5, 120, 180, 220));
+            _ambientGlowBrush = _ambientGlowFallbackBrush;
+            _orbBloomBrush = _orbBloomFallbackBrush;
+        }
+        AddFill(_ambientGlowGeometry, _ambientGlowBrush);
+        AddFill(_orbBloomGeometry, _orbBloomBrush);
 
-        _lensDarkBrush = _compositor.CreateColorBrush(Color.FromArgb(43, 8, 12, 18));
-        _lensAccentBrush = _compositor.CreateColorBrush(Color.FromArgb(15, 120, 180, 220));
+        AddGradientStroke(_primaryPath, 34f, 1, neutral: false);
+        AddGradientStroke(_primaryPath, 22f, 2, neutral: false);
+        AddGradientStroke(_secondaryPath, 14f, 2, neutral: false);
+        AddGradientStroke(_primaryPath, 8f, 4, neutral: false);
+        AddGradientStroke(_primaryPath, 3.2f, 7, neutral: false);
+
+        // The fine strand family carries the high-end filament character. A few
+        // neutral strands act as refractive highlights without washing out the
+        // artwork-derived accent.
+        for (var index = 0; index < _fineStrandPaths.Length; index++)
+        {
+            var lane = index / (float)(_fineStrandPaths.Length - 1);
+            var centerEmphasis = MathF.Sin(lane * MathF.PI);
+            var opticalHighlight = index is 4 or 12;
+            var peakAlpha = (byte)Math.Round(92 + (centerEmphasis * 108));
+            var thickness = 0.46f + (centerEmphasis * 0.42f);
+            AddGradientStroke(
+                _fineStrandPaths[index],
+                1.8f + (centerEmphasis * 1.15f),
+                (byte)Math.Round(12 + (centerEmphasis * 19)),
+                neutral: false);
+            AddGradientStroke(
+                _fineStrandPaths[index],
+                thickness,
+                peakAlpha,
+                neutral: opticalHighlight);
+        }
+
+        AddGradientStroke(_interferencePath, 0.44f, 11, neutral: false);
+        AddGradientStroke(_secondaryPath, 0.52f, 17, neutral: false);
+        AddGradientStroke(_primaryPath, 0.56f, 19, neutral: false);
+        AddGradientStroke(_primaryPath, 0.20f, 7, neutral: true);
+        AddGradientStroke(_filamentPath, 0.36f, 15, neutral: true);
+
+        AddGradientStroke(_lensOutlinePath, 12f, 13, neutral: false);
+        AddGradientStroke(_lensOutlinePath, 4.2f, 24, neutral: false);
+
+        _lensDarkBrush = _compositor.CreateColorBrush(Color.FromArgb(15, 8, 12, 18));
+        _lensAccentBrush = _compositor.CreateColorBrush(Color.FromArgb(16, 120, 180, 220));
         AddFill(_lensPath, _lensDarkBrush);
         AddFill(_lensPath, _lensAccentBrush);
 
-        _lensRimBrush = _compositor.CreateColorBrush(Color.FromArgb(94, 239, 244, 248));
+        _lensRimBrush = _compositor.CreateColorBrush(Color.FromArgb(136, 239, 244, 248));
         AddSolidStroke(_lensOutlinePath, 0.76f, _lensRimBrush);
         AddGradientStroke(_lensOutlinePath, 1.35f, 58, neutral: false);
+        AddGradientStroke(_lensInnerPath, 0.62f, 62, neutral: true);
+        AddGradientStroke(_lensCausticPath, 0.52f, 68, neutral: false);
 
-        _orbNeutralGeometry = _compositor.CreateEllipseGeometry();
-        _orbAccentGeometry = _compositor.CreateEllipseGeometry();
-        _orbHighlightGeometry = _compositor.CreateEllipseGeometry();
+        _orbDepthBrush = _compositor.CreateColorBrush(Color.FromArgb(18, 4, 8, 14));
         _orbNeutralBrush = _compositor.CreateColorBrush(Color.FromArgb(11, 246, 249, 252));
-        _orbAccentBrush = _compositor.CreateColorBrush(Color.FromArgb(22, 120, 180, 220));
+        if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 18362))
+        {
+            _orbAccentGradient =
+                new RadialGradientBinding(_compositor, centerAlpha: 74, shoulderAlpha: 30);
+            _orbAccentBrush = _orbAccentGradient.Brush;
+        }
+        else
+        {
+            _orbAccentFallbackBrush =
+                _compositor.CreateColorBrush(Color.FromArgb(34, 120, 180, 220));
+            _orbAccentBrush = _orbAccentFallbackBrush;
+        }
+        _orbRefractionBrush = _compositor.CreateColorBrush(Color.FromArgb(42, 120, 180, 220));
         _orbHighlightBrush = _compositor.CreateColorBrush(Color.FromArgb(190, 250, 252, 255));
+        _orbSparkBrush = _compositor.CreateColorBrush(Color.FromArgb(126, 250, 252, 255));
+        AddFill(_orbDepthGeometry, _orbDepthBrush);
         AddFill(_orbNeutralGeometry, _orbNeutralBrush);
         AddFill(_orbAccentGeometry, _orbAccentBrush);
+        AddFill(_orbRefractionGeometry, _orbRefractionBrush);
         AddFill(_orbHighlightGeometry, _orbHighlightBrush);
+        AddFill(_orbSparkGeometry, _orbSparkBrush);
+
+        // Nested, slightly eccentric half-ellipses give the embedded lens a
+        // refractive mesh character without animating a heavy path collection.
+        // Because every ellipse is centered on the monitor boundary, only its
+        // intentional inward half is visible.
+        for (var index = 0; index < _orbMeshGeometries.Length; index++)
+        {
+            var normalized = index / (float)(_orbMeshGeometries.Length - 1);
+            var neutral = index is 1 or 5;
+            AddGradientStroke(
+                _orbMeshGeometries[index],
+                0.27f + (MathF.Sin(normalized * MathF.PI) * 0.16f),
+                (byte)Math.Round(30 + (MathF.Sin(normalized * MathF.PI) * 39)),
+                neutral);
+        }
     }
 
     public event EventHandler? PointerEntered;
@@ -180,12 +310,34 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
 
     public static NativeEdgeCompositionHost? TryCreate()
     {
+#if NYKUR_EDGE_VISUAL_TEST
+        var scenarioPath = Path.Combine(AppContext.BaseDirectory, "nykur-edge.visual-test");
         try
         {
+            if (File.Exists(scenarioPath) &&
+                File.ReadAllText(scenarioPath).Contains("fallback", StringComparison.OrdinalIgnoreCase))
+            {
+                LastFailure = "QA forced Win2D mirror";
+                return null;
+            }
+        }
+        catch (IOException)
+        {
+            // Fall through to the native host; the QA marker is optional.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Fall through to the native host; the QA marker is optional.
+        }
+#endif
+        try
+        {
+            LastFailure = null;
             return new NativeEdgeCompositionHost();
         }
         catch (Exception exception) when (exception is not OutOfMemoryException)
         {
+            LastFailure = $"{exception.GetType().Name}: {exception.Message}";
             System.Diagnostics.Debug.WriteLine(
                 $"Native collapsed Edge composition is unavailable; using WinUI fallback: {exception}");
             return null;
@@ -221,15 +373,7 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
         UpdateVisibility();
     }
 
-    public void Render(
-        Vector2[] primary,
-        Vector2[] secondary,
-        Vector2[] interference,
-        Vector2[] filament,
-        Color accent,
-        EdgeOrbScale orbScale,
-        double notificationProgress,
-        float energy)
+    public void Render(EdgeFluidFrame frame)
     {
         ThrowIfDisposed();
         if (_expansionProgress > 0.001 || !_isShown)
@@ -237,65 +381,166 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
             return;
         }
 
-        var baseHeight = orbScale == EdgeOrbScale.Small ? 31f : 38f;
-        var baseReach = orbScale == EdgeOrbScale.Small ? 16f : 21f;
-        var visibleReach = baseReach + ((float)notificationProgress * 27f);
-        var lensHeight = baseHeight + ((float)notificationProgress * 12f);
-        var primaryGeometry = CreateSmoothPath(primary);
-        var secondaryGeometry = CreateSmoothPath(secondary);
-        var interferenceGeometry = CreateSmoothPath(interference);
-        var filamentGeometry = CreateSmoothPath(filament);
+        var baseHeight = frame.OrbScale == EdgeOrbScale.Small ? 31f : 38f;
+        var baseReach = frame.OrbScale == EdgeOrbScale.Small ? 16f : 21f;
+        var visibleReach = baseReach + ((float)frame.NotificationProgress * 27f);
+        var lensHeight = baseHeight + ((float)frame.NotificationProgress * 12f);
+        var primaryGeometry = CreateSmoothPath(frame.Primary);
+        var secondaryGeometry = CreateSmoothPath(frame.Secondary);
+        var interferenceGeometry = CreateSmoothPath(frame.Interference);
+        var filamentGeometry = CreateSmoothPath(frame.Filament);
         var lensGeometry = CreateLensGeometry(visibleReach, lensHeight, closeAtEdge: true);
         var lensOutlineGeometry = CreateLensGeometry(visibleReach, lensHeight, closeAtEdge: false);
+        var opticalDrift = (float)(
+            (Math.Sin(frame.ElapsedSeconds * 0.37) * 0.72) +
+            (Math.Sin((frame.ElapsedSeconds * 0.19) + 1.4) * 0.38));
+        var lensInnerGeometry = CreateLensGeometry(
+            visibleReach * 0.78f,
+            lensHeight * 0.72f,
+            closeAtEdge: false,
+            centerOffset: opticalDrift * 0.35f);
+        var lensCausticGeometry = CreateLensGeometry(
+            visibleReach * 0.54f,
+            lensHeight * 0.43f,
+            closeAtEdge: false,
+            centerOffset: opticalDrift * 0.62f);
 
         _primaryPath.Path = new WUC.CompositionPath(primaryGeometry);
         _secondaryPath.Path = new WUC.CompositionPath(secondaryGeometry);
         _interferencePath.Path = new WUC.CompositionPath(interferenceGeometry);
         _filamentPath.Path = new WUC.CompositionPath(filamentGeometry);
+        _pendingGeometries.Clear();
+        _pendingGeometries.Add(primaryGeometry);
+        _pendingGeometries.Add(secondaryGeometry);
+        _pendingGeometries.Add(interferenceGeometry);
+        _pendingGeometries.Add(filamentGeometry);
+        var strandCount = Math.Min(_fineStrandPaths.Length, frame.FineStrands.Length);
+        for (var index = 0; index < strandCount; index++)
+        {
+            var strandGeometry = CreateSmoothPath(frame.FineStrands[index]);
+            _fineStrandPaths[index].Path = new WUC.CompositionPath(strandGeometry);
+            _pendingGeometries.Add(strandGeometry);
+        }
         _lensPath.Path = new WUC.CompositionPath(lensGeometry);
         _lensOutlinePath.Path = new WUC.CompositionPath(lensOutlineGeometry);
+        _lensInnerPath.Path = new WUC.CompositionPath(lensInnerGeometry);
+        _lensCausticPath.Path = new WUC.CompositionPath(lensCausticGeometry);
+        _pendingGeometries.Add(lensGeometry);
+        _pendingGeometries.Add(lensOutlineGeometry);
+        _pendingGeometries.Add(lensInnerGeometry);
+        _pendingGeometries.Add(lensCausticGeometry);
 
         foreach (var geometry in _currentGeometries)
         {
             geometry.Dispose();
         }
         _currentGeometries.Clear();
-        _currentGeometries.Add(primaryGeometry);
-        _currentGeometries.Add(secondaryGeometry);
-        _currentGeometries.Add(interferenceGeometry);
-        _currentGeometries.Add(filamentGeometry);
-        _currentGeometries.Add(lensGeometry);
-        _currentGeometries.Add(lensOutlineGeometry);
+        _currentGeometries.AddRange(_pendingGeometries);
+        _pendingGeometries.Clear();
 
-        if (!_hasAccent || !_lastAccent.Equals(accent))
+        var luminous = frame.PressureField == EdgePressureField.Luminous;
+        if (!_hasAccent ||
+            !_lastAccent.Equals(frame.Accent) ||
+            _lastPressureField != frame.PressureField)
         {
-            _lastAccent = accent;
+            _lastAccent = frame.Accent;
+            _lastPressureField = frame.PressureField;
             _hasAccent = true;
             foreach (var gradient in _accentGradients)
             {
-                gradient.Update(accent);
+                gradient.Update(frame.Accent);
             }
-            _lensAccentBrush.Color = Color.FromArgb(15, accent.R, accent.G, accent.B);
+            if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 18362))
+            {
+                _ambientGlow?.Update(frame.Accent, luminous ? 1f : 0.68f);
+                _orbBloom?.Update(frame.Accent, luminous ? 1f : 0.76f);
+                _orbAccentGradient?.Update(frame.Accent, 1);
+            }
+            if (_ambientGlowFallbackBrush is not null)
+            {
+                _ambientGlowFallbackBrush.Color = Color.FromArgb(
+                    (byte)(luminous ? 3 : 2),
+                    frame.Accent.R,
+                    frame.Accent.G,
+                    frame.Accent.B);
+            }
+            if (_orbBloomFallbackBrush is not null)
+            {
+                _orbBloomFallbackBrush.Color = Color.FromArgb(
+                    (byte)(luminous ? 7 : 5),
+                    frame.Accent.R,
+                    frame.Accent.G,
+                    frame.Accent.B);
+            }
+            if (_orbAccentFallbackBrush is not null)
+            {
+                _orbAccentFallbackBrush.Color = Color.FromArgb(
+                    38,
+                    frame.Accent.R,
+                    frame.Accent.G,
+                    frame.Accent.B);
+            }
+            _lensAccentBrush.Color = Color.FromArgb(
+                18,
+                frame.Accent.R,
+                frame.Accent.G,
+                frame.Accent.B);
         }
-        _orbAccentBrush.Color = Color.FromArgb(
-            (byte)(18 + (Math.Clamp(energy, 0, 1) * 11)),
-            accent.R,
-            accent.G,
-            accent.B);
+
+        var energy = Math.Clamp(frame.Energy, 0, 1);
+        _orbRefractionBrush.Color = Color.FromArgb(
+            (byte)(36 + (energy * 16)),
+            frame.Accent.R,
+            frame.Accent.G,
+            frame.Accent.B);
 
         var edgeX = _side == EdgeSide.Right ? _widthDip : 0f;
         var direction = _side == EdgeSide.Right ? -1f : 1f;
         var centerY = _heightDip / 2f;
         var radius = lensHeight * 0.37f;
+
+        _ambientGlowGeometry.Center = new Vector2(
+            edgeX + (direction * (visibleReach * 0.18f)),
+            centerY);
+        _ambientGlowGeometry.Radius = new Vector2(
+            visibleReach * (2.45f + (energy * 0.24f)),
+            lensHeight * (2.5f + (energy * 0.18f)));
+        _orbBloomGeometry.Center = new Vector2(edgeX, centerY);
+        _orbBloomGeometry.Radius = new Vector2(radius * 1.9f, radius * 2.15f);
+        _orbDepthGeometry.Center = new Vector2(edgeX, centerY);
+        _orbDepthGeometry.Radius = new Vector2(radius * 1.02f, radius * 1.02f);
         _orbNeutralGeometry.Center = new Vector2(edgeX, centerY);
-        _orbNeutralGeometry.Radius = new Vector2(radius, radius);
+        _orbNeutralGeometry.Radius = new Vector2(radius * 0.92f, radius * 0.92f);
         _orbAccentGeometry.Center = new Vector2(edgeX, centerY);
-        _orbAccentGeometry.Radius = new Vector2(radius * 0.82f, radius * 0.82f);
+        _orbAccentGeometry.Radius = new Vector2(radius * 0.76f, radius * 0.76f);
+        _orbRefractionGeometry.Center = new Vector2(
+            edgeX + (direction * visibleReach * (0.29f + (opticalDrift * 0.012f))),
+            centerY + (opticalDrift * 0.44f));
+        _orbRefractionGeometry.Radius = new Vector2(radius * 0.34f, radius * 0.66f);
         _orbHighlightGeometry.Center = new Vector2(
-            edgeX + (direction * visibleReach * 0.73f),
-            centerY - (lensHeight * 0.24f));
-        var highlightRadius = Math.Max(0.8f, visibleReach * 0.062f);
+            edgeX + (direction * visibleReach * (0.70f + (opticalDrift * 0.01f))),
+            centerY - (lensHeight * (0.235f - (opticalDrift * 0.006f))));
+        var highlightRadius = Math.Max(0.72f, visibleReach * 0.055f);
         _orbHighlightGeometry.Radius = new Vector2(highlightRadius, highlightRadius);
+        _orbSparkGeometry.Center = new Vector2(
+            edgeX + (direction * visibleReach * 0.47f),
+            centerY + (lensHeight * (0.21f + (opticalDrift * 0.008f))));
+        _orbSparkGeometry.Radius = new Vector2(highlightRadius * 0.55f, highlightRadius * 0.55f);
+
+        for (var index = 0; index < _orbMeshGeometries.Length; index++)
+        {
+            var normalized = index / (float)(_orbMeshGeometries.Length - 1);
+            var phase = (float)Math.Sin(
+                (frame.ElapsedSeconds * (0.12 + (index * 0.008))) +
+                (index * 0.83));
+            var depth = 0.24f + (normalized * 0.70f);
+            _orbMeshGeometries[index].Center = new Vector2(
+                edgeX + (direction * radius * (0.018f + (phase * 0.018f))),
+                centerY + (phase * radius * 0.035f));
+            _orbMeshGeometries[index].Radius = new Vector2(
+                radius * depth,
+                radius * (0.42f + (normalized * 0.54f)));
+        }
     }
 
     public void Dispose()
@@ -313,6 +558,11 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
             geometry.Dispose();
         }
         _currentGeometries.Clear();
+        foreach (var geometry in _pendingGeometries)
+        {
+            geometry.Dispose();
+        }
+        _pendingGeometries.Clear();
         _ = DestroyWindow(_windowHandle);
         if (_selfHandle.IsAllocated)
         {
@@ -337,12 +587,6 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
         shape.StrokeLineJoin = WUC.CompositionStrokeLineJoin.Round;
         _shapeVisual.Shapes.Append(shape);
     }
-
-    private void AddSolidStroke(
-        WUC.CompositionGeometry geometry,
-        float thickness,
-        Color color) =>
-        AddSolidStroke(geometry, thickness, _compositor.CreateColorBrush(color));
 
     private void AddSolidStroke(
         WUC.CompositionGeometry geometry,
@@ -386,11 +630,12 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
     private CanvasGeometry CreateLensGeometry(
         float visibleReach,
         float lensHeight,
-        bool closeAtEdge)
+        bool closeAtEdge,
+        float centerOffset = 0)
     {
         var edgeX = _side == EdgeSide.Right ? _widthDip : 0f;
         var direction = _side == EdgeSide.Right ? -1f : 1f;
-        var centerY = _heightDip / 2f;
+        var centerY = (_heightDip / 2f) + centerOffset;
         var innerX = edgeX + (direction * visibleReach);
         var top = centerY - (lensHeight / 2f);
         var bottom = centerY + (lensHeight / 2f);
@@ -565,6 +810,11 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
         {
             var creation = Marshal.PtrToStructure<CreateStructure>(lParam);
             _ = SetWindowLongPointer(windowHandle, WindowLongUserData, creation.CreateParameters);
+
+            // WM_NCCREATE is the gate for CreateWindowEx: returning zero aborts
+            // creation. Be explicit here instead of forwarding through the
+            // partially constructed host instance.
+            return new IntPtr(1);
         }
 
         var userData = GetWindowLongPointer(windowHandle, WindowLongUserData);
@@ -617,7 +867,7 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
     private sealed class VerticalGradientBinding
     {
         private static readonly float[] Offsets = [0f, 0.1f, 0.29f, 0.5f, 0.71f, 0.9f, 1f];
-        private static readonly float[] Strengths = [0f, 0.08f, 0.42f, 1f, 0.42f, 0.08f, 0f];
+        private static readonly float[] Strengths = [0f, 0.12f, 0.58f, 1f, 0.58f, 0.12f, 0f];
         private readonly WUC.CompositionColorGradientStop[] _stops;
         private readonly byte _peakAlpha;
         private readonly bool _neutral;
@@ -654,6 +904,54 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
                     0,
                     255);
                 _stops[index].Color = Color.FromArgb(alpha, red, green, blue);
+            }
+        }
+    }
+
+    [SupportedOSPlatform("windows10.0.18362.0")]
+    private sealed class RadialGradientBinding
+    {
+        private static readonly float[] Offsets = [0f, 0.28f, 0.68f, 1f];
+        private static readonly float[] Strengths = [1f, 0.82f, 0.22f, 0f];
+        private readonly WUC.CompositionColorGradientStop[] _stops;
+        private readonly byte _centerAlpha;
+        private readonly byte _shoulderAlpha;
+
+        public RadialGradientBinding(
+            WUC.Compositor compositor,
+            byte centerAlpha,
+            byte shoulderAlpha)
+        {
+            _centerAlpha = centerAlpha;
+            _shoulderAlpha = shoulderAlpha;
+            Brush = compositor.CreateRadialGradientBrush();
+            Brush.MappingMode = WUC.CompositionMappingMode.Relative;
+            Brush.EllipseCenter = new Vector2(0.5f, 0.5f);
+            Brush.EllipseRadius = new Vector2(0.5f, 0.5f);
+            Brush.GradientOriginOffset = new Vector2(-0.08f, -0.05f);
+            _stops = new WUC.CompositionColorGradientStop[Offsets.Length];
+            for (var index = 0; index < Offsets.Length; index++)
+            {
+                _stops[index] = compositor.CreateColorGradientStop();
+                _stops[index].Offset = Offsets[index];
+                Brush.ColorStops.Append(_stops[index]);
+            }
+            Update(Color.FromArgb(255, 120, 180, 220), 1);
+        }
+
+        public WUC.CompositionRadialGradientBrush Brush { get; }
+
+        public void Update(Color accent, float intensity)
+        {
+            intensity = Math.Clamp(intensity, 0, 1.5f);
+            for (var index = 0; index < _stops.Length; index++)
+            {
+                var baseAlpha = index <= 1 ? _centerAlpha : _shoulderAlpha;
+                var alpha = (byte)Math.Clamp(
+                    (int)Math.Round(baseAlpha * Strengths[index] * intensity),
+                    0,
+                    255);
+                _stops[index].Color = Color.FromArgb(alpha, accent.R, accent.G, accent.B);
             }
         }
     }
