@@ -226,13 +226,20 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
         {
             var lane = index / (float)(_fineStrandPaths.Length - 1);
             var centerEmphasis = MathF.Sin(lane * MathF.PI);
-            var opticalHighlight = index is 4 or 12;
-            var peakAlpha = (byte)Math.Round(92 + (centerEmphasis * 108));
-            var thickness = 0.46f + (centerEmphasis * 0.42f);
+            var opticalHighlight =
+                index == _fineStrandPaths.Length / 3 ||
+                index == (_fineStrandPaths.Length * 2) / 3;
+
+            // The renderer deliberately uses a dense strand family. Keep each
+            // individual strand quiet so their accumulation reads as airy glass
+            // instead of a solid luminous strip. Only two lanes become neutral
+            // optical catches; the artwork accent remains the dominant color.
+            var peakAlpha = (byte)Math.Round(10 + (centerEmphasis * 30));
+            var thickness = 0.28f + (centerEmphasis * 0.28f);
             AddGradientStroke(
                 _fineStrandPaths[index],
-                1.8f + (centerEmphasis * 1.15f),
-                (byte)Math.Round(12 + (centerEmphasis * 19)),
+                0.90f + (centerEmphasis * 0.75f),
+                (byte)Math.Round(3 + (centerEmphasis * 6)),
                 neutral: false);
             AddGradientStroke(
                 _fineStrandPaths[index],

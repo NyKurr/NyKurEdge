@@ -42,10 +42,15 @@ support uses `Microsoft.Windows.SDK.BuildTools.WinApp 0.3.1`.
 ## Commands
 
 ```powershell
-dotnet restore NyKurEdge.slnx
-dotnet build NyKurEdge.slnx --configuration Debug
-dotnet test tests\NyKurEdge.Core.Tests\NyKurEdge.Core.Tests.csproj --configuration Debug
+dotnet msbuild NyKurEdge.slnx -t:Restore -m:1 -nr:false -p:RestoreDisableParallel=true
+dotnet msbuild NyKurEdge.slnx -t:Build -m:1 -nr:false -p:Configuration=Debug -p:UseSharedCompilation=false
+dotnet vstest tests\NyKurEdge.Core.Tests\bin\Debug\net10.0\NyKurEdge.Core.Tests.dll
 ```
+
+The explicit `-m:1` keeps command-line validation deterministic on
+high-core-count workstations, while `Directory.Build.rsp` disables node reuse.
+Together they prevent a large idle worker pool after repeated CLI builds;
+Visual Studio builds are not affected.
 
 Launch the packaged app:
 

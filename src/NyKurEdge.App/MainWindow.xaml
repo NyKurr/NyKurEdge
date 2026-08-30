@@ -7,11 +7,9 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     Title="NyKur Edge"
     mc:Ignorable="d">
-    <Window.SystemBackdrop>
-        <DesktopAcrylicBackdrop />
-    </Window.SystemBackdrop>
-
     <Grid Background="Transparent">
-        <Frame x:Name="RootFrame" />
+        <Frame
+            x:Name="RootFrame"
+            Background="Transparent" />
     </Grid>
 </Window>

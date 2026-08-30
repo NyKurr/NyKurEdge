@@ -1,0 +1,4 @@
+# Do not leave reusable command-line worker nodes resident after a build.
+# The documented CLI commands also pass an explicit max CPU count because the
+# dotnet driver supplies its own parallel-build switch after response files.
+-nodeReuse:false

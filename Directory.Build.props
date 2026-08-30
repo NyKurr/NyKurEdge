@@ -1,5 +1,9 @@
 <Project>
   <PropertyGroup>
+    <Authors>NyKur</Authors>
+    <Company>NyKur</Company>
+    <Product>NyKur Edge</Product>
+    <Copyright>Copyright © NyKur 2026</Copyright>
     <LangVersion>latest</LangVersion>
     <Deterministic>true</Deterministic>
     <AnalysisLevel>latest-recommended</AnalysisLevel>

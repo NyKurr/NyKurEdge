@@ -61,9 +61,9 @@ Requirements:
 From the repository root:
 
 ```powershell
-dotnet restore NyKurEdge.slnx
-dotnet build src\NyKurEdge.App\NyKurEdge.App.csproj --configuration Debug
-dotnet test tests\NyKurEdge.Core.Tests\NyKurEdge.Core.Tests.csproj
+dotnet msbuild NyKurEdge.slnx -t:Restore -m:1 -nr:false -p:RestoreDisableParallel=true
+dotnet msbuild NyKurEdge.slnx -t:Build -m:1 -nr:false -p:Configuration=Debug -p:UseSharedCompilation=false
+dotnet vstest tests\NyKurEdge.Core.Tests\bin\Debug\net10.0\NyKurEdge.Core.Tests.dll
 dotnet run --project src\NyKurEdge.App\NyKurEdge.App.csproj --configuration Debug --no-build
 ```
 
@@ -75,7 +75,7 @@ For a bounded visual-inspection build that is targetable by UI automation and ha
 compile-only state-preview accelerators, build with:
 
 ```powershell
-dotnet build src\NyKurEdge.App\NyKurEdge.App.csproj --configuration Debug -p:NyKurEdgeVisualTest=true
+dotnet msbuild src\NyKurEdge.App\NyKurEdge.App.csproj -t:Build -m:1 -nr:false -p:Configuration=Debug -p:UseSharedCompilation=false -p:NyKurEdgeVisualTest=true
 ```
 
 Rebuild without that property before normal use.

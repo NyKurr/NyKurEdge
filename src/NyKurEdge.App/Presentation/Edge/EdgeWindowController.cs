@@ -83,7 +83,8 @@ public sealed class EdgeWindowController : IDisposable
         _settings = settings;
         _appWindow = window.AppWindow;
         _windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
-        _expandedBackdrop = window.SystemBackdrop;
+        _expandedBackdrop = window.SystemBackdrop ?? new DesktopAcrylicBackdrop();
+        window.SystemBackdrop = null;
         if (DesktopAcrylicController.IsSupported())
         {
             _backdropConfiguration = new SystemBackdropConfiguration
@@ -92,12 +93,12 @@ public sealed class EdgeWindowController : IDisposable
                 Theme = SystemBackdropTheme.Dark,
             };
             _acrylicController = new DesktopAcrylicController();
-            window.SystemBackdrop = null;
             _acrylicController.AddSystemBackdropTarget(
                 window.As<ICompositionSupportsSystemBackdrop>());
             _acrylicController.SetSystemBackdropConfiguration(_backdropConfiguration);
+            ConfigureAcrylicMaterial(expanded: false);
         }
-        _isExpandedBackdropApplied = _expandedBackdrop is not null;
+        _isExpandedBackdropApplied = false;
         _display = displayService.GetPrimaryDisplay();
         _nativeOverlay = NativeEdgeCompositionHost.TryCreate();
         if (_nativeOverlay is not null)
@@ -506,7 +507,12 @@ public sealed class EdgeWindowController : IDisposable
         var useNativeCollapsedSurface = _nativeOverlay is not null && progress <= 0.001;
         if (!useNativeCollapsedSurface)
         {
-            var fluidField = CreateFluidFieldRegion(width, height, side, scale);
+            var fluidField = CreateFluidFieldRegion(
+                width,
+                height,
+                side,
+                scale,
+                _notificationExpansion);
             UnionRegion(composite, fluidField);
         }
 
@@ -569,10 +575,13 @@ public sealed class EdgeWindowController : IDisposable
         int width,
         int height,
         EdgeSide side,
-        double scale)
+        double scale,
+        double notificationExpansion)
     {
         const int profilePointCount = 73;
-        var points = new NativePoint[profilePointCount * 2];
+        var points = new NativePoint[profilePointCount + 2];
+        var edgeX = side == EdgeSide.Right ? width : 0;
+        points[0] = new NativePoint(edgeX, 0);
 
         for (var index = 0; index < profilePointCount; index++)
         {
@@ -588,28 +597,37 @@ public sealed class EdgeWindowController : IDisposable
             var distantFlow =
                 Gaussian(normalizedY, 0.285, 9.6) +
                 Gaussian(normalizedY, 0.715, 9.6);
-            var profileReachDip = presence *
-                                  (2.4 +
-                                   (21.5 * centerEnvelope) +
-                                   (4.8 * orbShoulders) +
-                                   (2.8 * distantFlow)) *
-                                  (1 - (orbChannel * 0.36));
-            var ribbonHalfWidthDip = 6.5 * Math.Sqrt(Math.Max(0, presence));
-            var outerReachDip = profileReachDip + ribbonHalfWidthDip + presence;
-            var innerReachDip = Math.Max(0, profileReachDip - ribbonHalfWidthDip);
-            var outerReach = Math.Clamp((int)Math.Ceiling(outerReachDip * scale), 0, width);
-            var innerReach = Math.Clamp((int)Math.Floor(innerReachDip * scale), 0, width);
+            // This is deliberately a conservative envelope rather than a copy
+            // of the animated renderer. The current field contains fine lanes
+            // at several depths, broad low-alpha bloom strokes, playing-state
+            // displacement, and a travelling notification pulse. An annular
+            // region based on one old contour clipped most of those layers and
+            // could make the entire app appear missing. Keep the desktop-facing
+            // side dynamic-looking while allowing every renderer layer between
+            // it and the physical edge to survive DWM clipping.
+            var centerReachDip = 87 * centerEnvelope;
+            var shoulderReachDip = 15 * orbShoulders;
+            var distantReachDip = 10 * distantFlow;
+            var notificationReachDip =
+                20 * Math.Clamp(notificationExpansion, 0, 1) *
+                Gaussian(normalizedY, 0.5, 4.2);
+            var outerReachDip = presence *
+                                (7 + centerReachDip + shoulderReachDip + distantReachDip) *
+                                (1 - (orbChannel * 0.08)) +
+                                notificationReachDip +
+                                10;
+            var outerReach = Math.Clamp(
+                (int)Math.Ceiling(outerReachDip * scale),
+                1,
+                width);
             var y = Math.Clamp((int)Math.Round(normalizedY * (height - 1)), 0, height - 1);
 
-            points[index] = new NativePoint(
+            points[index + 1] = new NativePoint(
                 side == EdgeSide.Right ? width - outerReach : outerReach,
-                y);
-            var mirroredIndex = points.Length - 1 - index;
-            points[mirroredIndex] = new NativePoint(
-                side == EdgeSide.Right ? width - innerReach : innerReach,
                 y);
         }
 
+        points[^1] = new NativePoint(edgeX, height);
         return CreatePolygonRegion(points, points.Length, AlternateFillMode);
     }
 
@@ -705,9 +723,7 @@ public sealed class EdgeWindowController : IDisposable
         }
         else if (_expandedBackdrop is not null)
         {
-            // Older supported Windows builds retain the XAML backdrop rather
-            // than exposing the opaque no-material fallback.
-            _window.SystemBackdrop = _expandedBackdrop;
+            _window.SystemBackdrop = visible ? _expandedBackdrop : null;
         }
         _isExpandedBackdropApplied = visible;
     }
@@ -730,7 +746,13 @@ public sealed class EdgeWindowController : IDisposable
             return;
         }
 
+        // ResetProperties restores an opaque luminosity/fallback material.
+        // Zero every contributor explicitly so transparent Win2D pixels reveal
+        // the desktop instead of an acrylic-colored region silhouette.
+        _acrylicController.TintColor = Windows.UI.Color.FromArgb(0, 0, 0, 0);
         _acrylicController.TintOpacity = 0f;
+        _acrylicController.LuminosityOpacity = 0f;
+        _acrylicController.FallbackColor = Windows.UI.Color.FromArgb(0, 0, 0, 0);
     }
 
     private void OnNativeOverlayPointerEntered(object? sender, EventArgs args) =>
