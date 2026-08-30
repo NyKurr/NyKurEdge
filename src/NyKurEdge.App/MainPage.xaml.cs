@@ -175,17 +175,17 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void HandlePointerEntered()
     {
-#if NYKUR_EDGE_VISUAL_TEST
-        // Keep screenshot states deterministic and prevent an existing mouse
-        // position from opening the QA window. F9 exercises the same bloom path.
-        _ = _windowController;
-        return;
-#else
+        // Passive screenshot captures stay deterministic, while interactive QA
+        // builds exercise the same real hover path that ships to users.
+        if (_windowController.SuppressesPointerPreview)
+        {
+            return;
+        }
+
         _collapseTimer.Stop();
         _stateMachine.PointerEntered();
         UpdateContextSurface();
         _windowController.SetExpanded(true);
-#endif
     }
 
     private void OnPointerExited(object sender, PointerRoutedEventArgs e) => HandlePointerExited();
@@ -194,21 +194,38 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void HandlePointerExited()
     {
-#if NYKUR_EDGE_VISUAL_TEST
-        _ = _windowController;
-        return;
-#else
+        if (_windowController.SuppressesPointerPreview)
+        {
+            return;
+        }
+
         _stateMachine.PointerExited(DateTimeOffset.Now);
         if (!_stateMachine.State.IsPinnedOpen)
         {
             _collapseTimer.Start();
         }
-#endif
     }
 
     private void OnCollapseTimerTick(DispatcherQueueTimer sender, object args)
     {
-        var state = _stateMachine.Advance(DateTimeOffset.Now);
+        var now = DateTimeOffset.Now;
+        // Resizing the adaptive HWND during the bloom can produce a synthetic
+        // PointerExited even though the cursor is still over the orb or panel.
+        // Reconcile with the real topmost hit window before honoring the grace
+        // timeout. Keep polling in this recovery path so a later physical leave
+        // still collapses even if XAML does not emit a second exit event.
+        if (_windowController.IsPointerOverInteractiveSurface())
+        {
+            _stateMachine.PointerEntered();
+            return;
+        }
+
+        if (_stateMachine.State.IsPointerInside)
+        {
+            _stateMachine.PointerExited(now);
+        }
+
+        var state = _stateMachine.Advance(now);
         if (state.Visibility == EdgeVisibility.Collapsed)
         {
             _collapseTimer.Stop();

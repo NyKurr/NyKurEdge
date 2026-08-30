@@ -316,6 +316,9 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
 
     public event EventHandler? SecondaryClicked;
 
+    internal bool OwnsInteractiveWindow(IntPtr windowHandle) =>
+        windowHandle == _windowHandle && _pointerInside;
+
     public static NativeEdgeCompositionHost? TryCreate()
     {
         // The no-redirection composition target can be created and accept frame

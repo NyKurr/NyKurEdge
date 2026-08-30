@@ -35,6 +35,13 @@ public sealed class EdgeWindowController : IDisposable
     private const int DwmBorderColor = 34;
     private const uint DwmDoNotRound = 1;
     private const uint DwmColorNone = 0xFFFFFFFE;
+    private const uint DwmBlurBehindEnable = 0x00000001;
+    private const uint DwmBlurBehindRegion = 0x00000002;
+    private const uint GetAncestorRoot = 2;
+    private const uint WindowMessageEraseBackground = 0x0014;
+    private const uint WindowMessageNonClientDestroy = 0x0082;
+    private const uint WindowMessageDwmCompositionChanged = 0x031E;
+    private static readonly UIntPtr WindowSubclassId = new(0x4E45);
 
     private static readonly IntPtr TopMostWindow = new(-1);
 
@@ -44,8 +51,13 @@ public sealed class EdgeWindowController : IDisposable
     private readonly AppWindow _appWindow;
     private readonly IntPtr _windowHandle;
     private readonly SystemBackdrop? _expandedBackdrop;
+    private readonly ICompositionSupportsSystemBackdrop _backdropTarget;
+    private readonly IntPtr _backdropDispatcherQueueController;
+    private readonly Windows.UI.Composition.Compositor _backdropCompositor;
+    private readonly Windows.UI.Composition.CompositionColorBrush _collapsedBackdropBrush;
     private readonly DesktopAcrylicController? _acrylicController;
     private readonly SystemBackdropConfiguration? _backdropConfiguration;
+    private readonly WindowSubclassProcedure _windowSubclassProcedure;
     private readonly DispatcherQueueTimer _animationTimer;
     private readonly DispatcherQueueTimer _displayPollTimer;
     private readonly Stopwatch _animationClock = new();
@@ -63,6 +75,8 @@ public sealed class EdgeWindowController : IDisposable
     private bool _isPinnedInteractive;
     private bool _isExpandedBackdropApplied;
     private bool _isAcrylicTargetAttached;
+    private bool _windowSubclassInstalled;
+    private GCHandle _windowSubclassLifetime;
     private bool _canApplyAdaptiveRegion;
     private bool _windowRegionApplied;
     private int _regionWidth;
@@ -80,12 +94,24 @@ public sealed class EdgeWindowController : IDisposable
         SettingsService settings)
     {
         _window = window;
+        _windowSubclassProcedure = OnWindowSubclassMessage;
         _displayService = displayService;
         _settings = settings;
         _appWindow = window.AppWindow;
         _windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         _expandedBackdrop = window.SystemBackdrop ?? new DesktopAcrylicBackdrop();
         window.SystemBackdrop = null;
+        _backdropTarget = window.As<ICompositionSupportsSystemBackdrop>();
+        _backdropDispatcherQueueController = EnsureCompositionDispatcherQueue();
+        _backdropCompositor = new Windows.UI.Composition.Compositor();
+        _collapsedBackdropBrush =
+            _backdropCompositor.CreateColorBrush(Microsoft.UI.Colors.Transparent);
+        // A transparent XAML root alone is not sufficient: without an output
+        // backdrop WinUI resolves clear pixels against its opaque theme surface.
+        // The brush is attached in ShowWithoutActivation, after MainPage and its
+        // Win2D surface have joined the XAML tree. Attaching it before the root
+        // content exists can leave the transparent backdrop visible but starve
+        // the foreground canvas on some composition paths.
         if (DesktopAcrylicController.IsSupported())
         {
             _backdropConfiguration = new SystemBackdropConfiguration
@@ -119,6 +145,7 @@ public sealed class EdgeWindowController : IDisposable
         ConfigurePresenter();
         ApplyNativeWindowStyles(noActivate: true);
         SuppressNativeFrame();
+        InstallWindowSubclass();
         _window.Activated += OnWindowActivated;
         UpdateBounds(0);
 
@@ -146,11 +173,39 @@ public sealed class EdgeWindowController : IDisposable
 
     public bool IsExpanded => _progress >= 0.999;
 
+    public bool SuppressesPointerPreview =>
+        _visualInspectionMode && IsPassiveVisualInspection();
+
+    public bool IsPointerOverInteractiveSurface()
+    {
+        if (!GetCursorPosition(out var point))
+        {
+            return false;
+        }
+
+        var hitWindow = WindowFromPoint(point);
+        if (hitWindow == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        var rootWindow = GetAncestor(hitWindow, GetAncestorRoot);
+        if (rootWindow == IntPtr.Zero)
+        {
+            rootWindow = hitWindow;
+        }
+
+        return rootWindow == _windowHandle ||
+               (_nativeOverlay?.OwnsInteractiveWindow(rootWindow) ?? false);
+    }
+
     internal bool HasNativeCollapsedSurface => _nativeOverlay is not null;
 
     public void ShowWithoutActivation()
     {
         ThrowIfDisposed();
+        ConfigureTransparentCompositionSurface();
+        _backdropTarget.SystemBackdrop = _collapsedBackdropBrush;
         if (_visualInspectionMode && !IsPassiveVisualInspection())
         {
             ApplyNativeWindowStyles(noActivate: false);
@@ -322,6 +377,17 @@ public sealed class EdgeWindowController : IDisposable
         _displayPollTimer.Stop();
         _displayPollTimer.Tick -= OnDisplayPollTick;
         _window.Activated -= OnWindowActivated;
+        if (_windowSubclassInstalled)
+        {
+            var removed = RemoveWindowSubclass(
+                _windowHandle,
+                _windowSubclassProcedure,
+                WindowSubclassId);
+            if (removed || !IsWindow(_windowHandle))
+            {
+                ReleaseWindowSubclassLifetime();
+            }
+        }
         if (_nativeOverlay is not null)
         {
             _nativeOverlay.PointerEntered -= OnNativeOverlayPointerEntered;
@@ -332,6 +398,14 @@ public sealed class EdgeWindowController : IDisposable
         }
         _acrylicController?.RemoveAllSystemBackdropTargets();
         _acrylicController?.Dispose();
+        _backdropTarget.SystemBackdrop = null;
+        _collapsedBackdropBrush.Dispose();
+        _backdropCompositor.Dispose();
+        if (_backdropDispatcherQueueController != IntPtr.Zero)
+        {
+            _ = Marshal.Release(_backdropDispatcherQueueController);
+        }
+        _window.SystemBackdrop = null;
     }
 
     private void ConfigurePresenter()
@@ -476,6 +550,7 @@ public sealed class EdgeWindowController : IDisposable
         if (current.WorkArea != _display.WorkArea || current.Dpi != _display.Dpi)
         {
             _display = current;
+            ConfigureDwmTransparency();
             UpdateBounds(_progress);
         }
     }
@@ -722,6 +797,11 @@ public sealed class EdgeWindowController : IDisposable
         {
             if (visible)
             {
+                // The acrylic controller and Window.SystemBackdrop both target
+                // the same root. Disconnect the transparent brush before the
+                // expanded material takes ownership of that target.
+                _backdropTarget.SystemBackdrop = null;
+
                 if (!_isAcrylicTargetAttached)
                 {
                     _acrylicController.AddSystemBackdropTarget(
@@ -743,12 +823,176 @@ public sealed class EdgeWindowController : IDisposable
                 _acrylicController.RemoveAllSystemBackdropTargets();
                 _isAcrylicTargetAttached = false;
             }
+
+            if (!visible)
+            {
+                _backdropTarget.SystemBackdrop = _collapsedBackdropBrush;
+            }
         }
         else if (_expandedBackdrop is not null)
         {
-            _window.SystemBackdrop = visible ? _expandedBackdrop : null;
+            if (visible)
+            {
+                _backdropTarget.SystemBackdrop = null;
+                _window.SystemBackdrop = _expandedBackdrop;
+            }
+            else
+            {
+                _window.SystemBackdrop = null;
+                _backdropTarget.SystemBackdrop = _collapsedBackdropBrush;
+            }
         }
         _isExpandedBackdropApplied = visible;
+    }
+
+    private void ConfigureTransparentCompositionSurface()
+    {
+        ConfigureDwmTransparency();
+        ClearTransparentBackingSurface(GetDeviceContext(_windowHandle), releaseDeviceContext: true);
+    }
+
+    private void ConfigureDwmTransparency()
+    {
+        var margins = new NativeMargins();
+        _ = DwmExtendFrameIntoClientArea(_windowHandle, ref margins);
+
+        var blurRegion = CreateRectRegion(-2, -2, -1, -1);
+        if (blurRegion != IntPtr.Zero)
+        {
+            try
+            {
+                var blur = new DwmBlurBehind
+                {
+                    Flags = DwmBlurBehindEnable | DwmBlurBehindRegion,
+                    IsEnabled = true,
+                    BlurRegion = blurRegion,
+                };
+                _ = DwmEnableBlurBehindWindow(_windowHandle, ref blur);
+            }
+            finally
+            {
+                _ = DeleteObject(blurRegion);
+            }
+        }
+    }
+
+    private void ClearTransparentBackingSurface(
+        IntPtr deviceContext,
+        bool releaseDeviceContext)
+    {
+        if (deviceContext == IntPtr.Zero)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!GetClientRectangle(_windowHandle, out var clientRectangle))
+            {
+                return;
+            }
+
+            var backgroundBrush = CreateSolidBrush(0);
+            if (backgroundBrush == IntPtr.Zero)
+            {
+                return;
+            }
+
+            try
+            {
+                _ = FillRectangle(deviceContext, ref clientRectangle, backgroundBrush);
+            }
+            finally
+            {
+                _ = DeleteObject(backgroundBrush);
+            }
+        }
+        finally
+        {
+            if (releaseDeviceContext)
+            {
+                _ = ReleaseDeviceContext(_windowHandle, deviceContext);
+            }
+        }
+    }
+
+    private void InstallWindowSubclass()
+    {
+        _windowSubclassInstalled = SetWindowSubclass(
+            _windowHandle,
+            _windowSubclassProcedure,
+            WindowSubclassId,
+            UIntPtr.Zero);
+        if (_windowSubclassInstalled)
+        {
+            // Keep the managed callback owner alive until comctl32 confirms the
+            // subclass is gone. A failed removal must never leave a collectible
+            // delegate behind an otherwise valid HWND.
+            _windowSubclassLifetime = GCHandle.Alloc(this);
+        }
+    }
+
+    private IntPtr OnWindowSubclassMessage(
+        IntPtr windowHandle,
+        uint message,
+        IntPtr wParam,
+        IntPtr lParam,
+        UIntPtr subclassId,
+        UIntPtr referenceData)
+    {
+        if (message == WindowMessageNonClientDestroy)
+        {
+            _ = RemoveWindowSubclass(
+                windowHandle,
+                _windowSubclassProcedure,
+                WindowSubclassId);
+            ReleaseWindowSubclassLifetime();
+            return DefSubclassProc(windowHandle, message, wParam, lParam);
+        }
+
+        if (!_disposed)
+        {
+            if (message == WindowMessageDwmCompositionChanged)
+            {
+                ConfigureDwmTransparency();
+            }
+            else if (message == WindowMessageEraseBackground)
+            {
+                // Prevent WinUI's default theme brush from repainting the clear
+                // composition surface after resize/display/DWM transitions.
+                ClearTransparentBackingSurface(wParam, releaseDeviceContext: false);
+                return new IntPtr(1);
+            }
+        }
+
+        return DefSubclassProc(windowHandle, message, wParam, lParam);
+    }
+
+    private void ReleaseWindowSubclassLifetime()
+    {
+        _windowSubclassInstalled = false;
+        if (_windowSubclassLifetime.IsAllocated)
+        {
+            _windowSubclassLifetime.Free();
+        }
+    }
+
+    private static IntPtr EnsureCompositionDispatcherQueue()
+    {
+        if (Windows.System.DispatcherQueue.GetForCurrentThread() is not null)
+        {
+            return IntPtr.Zero;
+        }
+
+        var options = new DispatcherQueueOptions
+        {
+            Size = Marshal.SizeOf<DispatcherQueueOptions>(),
+            ThreadType = 2, // DQTYPE_THREAD_CURRENT
+            ApartmentType = 2, // DQTAT_COM_STA
+        };
+        Marshal.ThrowExceptionForHR(
+            CreateDispatcherQueueController(options, out var controller));
+        return controller;
     }
 
     private void ConfigureAcrylicMaterial(bool expanded)
@@ -849,12 +1093,84 @@ public sealed class EdgeWindowController : IDisposable
         int height,
         uint flags);
 
+    [DllImport("user32.dll", EntryPoint = "GetCursorPos")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetCursorPosition(out NativePoint point);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr WindowFromPoint(NativePoint point);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr windowHandle, uint flags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindow(IntPtr windowHandle);
+
+    [DllImport("comctl32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowSubclass(
+        IntPtr windowHandle,
+        WindowSubclassProcedure subclassProcedure,
+        UIntPtr subclassId,
+        UIntPtr referenceData);
+
+    [DllImport("comctl32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RemoveWindowSubclass(
+        IntPtr windowHandle,
+        WindowSubclassProcedure subclassProcedure,
+        UIntPtr subclassId);
+
+    [DllImport("comctl32.dll")]
+    private static extern IntPtr DefSubclassProc(
+        IntPtr windowHandle,
+        uint message,
+        IntPtr wParam,
+        IntPtr lParam);
+
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(
         IntPtr windowHandle,
         int attribute,
         ref uint attributeValue,
         int attributeSize);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmExtendFrameIntoClientArea(
+        IntPtr windowHandle,
+        ref NativeMargins margins);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmEnableBlurBehindWindow(
+        IntPtr windowHandle,
+        ref DwmBlurBehind blurBehind);
+
+    [DllImport("user32.dll", EntryPoint = "GetDC")]
+    private static extern IntPtr GetDeviceContext(IntPtr windowHandle);
+
+    [DllImport("user32.dll", EntryPoint = "ReleaseDC")]
+    private static extern int ReleaseDeviceContext(IntPtr windowHandle, IntPtr deviceContext);
+
+    [DllImport("user32.dll", EntryPoint = "GetClientRect")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetClientRectangle(
+        IntPtr windowHandle,
+        out NativeRectangle rectangle);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateSolidBrush(uint colorReference);
+
+    [DllImport("user32.dll", EntryPoint = "FillRect")]
+    private static extern int FillRectangle(
+        IntPtr deviceContext,
+        ref NativeRectangle rectangle,
+        IntPtr brush);
+
+    [DllImport("CoreMessaging.dll")]
+    private static extern int CreateDispatcherQueueController(
+        DispatcherQueueOptions options,
+        out IntPtr dispatcherQueueController);
 
     [DllImport("gdi32.dll", EntryPoint = "CreatePolygonRgn")]
     private static extern IntPtr CreatePolygonRegion(
@@ -891,4 +1207,52 @@ public sealed class EdgeWindowController : IDisposable
         public readonly int X = x;
         public readonly int Y = y;
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRectangle
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeMargins
+    {
+        public int Left;
+        public int Right;
+        public int Top;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DwmBlurBehind
+    {
+        public uint Flags;
+
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool IsEnabled;
+
+        public IntPtr BlurRegion;
+
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool TransitionOnMaximized;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DispatcherQueueOptions
+    {
+        public int Size;
+        public int ThreadType;
+        public int ApartmentType;
+    }
+
+    private delegate IntPtr WindowSubclassProcedure(
+        IntPtr windowHandle,
+        uint message,
+        IntPtr wParam,
+        IntPtr lParam,
+        UIntPtr subclassId,
+        UIntPtr referenceData);
 }
