@@ -407,10 +407,10 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
         var baseReach = frame.OrbScale == EdgeOrbScale.Small ? 16f : 21f;
         var visibleReach = baseReach + ((float)frame.NotificationProgress * 27f);
         var lensHeight = baseHeight + ((float)frame.NotificationProgress * 12f);
-        var primaryGeometry = CreateSmoothPath(frame.Primary);
-        var secondaryGeometry = CreateSmoothPath(frame.Secondary);
-        var interferenceGeometry = CreateSmoothPath(frame.Interference);
-        var filamentGeometry = CreateSmoothPath(frame.Filament);
+        var primaryGeometry = CreateSmoothPath(frame.Primary, frame.OrbAttachmentRadius);
+        var secondaryGeometry = CreateSmoothPath(frame.Secondary, frame.OrbAttachmentRadius);
+        var interferenceGeometry = CreateSmoothPath(frame.Interference, frame.OrbAttachmentRadius);
+        var filamentGeometry = CreateSmoothPath(frame.Filament, frame.OrbAttachmentRadius);
         var lensGeometry = CreateLensGeometry(visibleReach, lensHeight, closeAtEdge: true);
         var lensOutlineGeometry = CreateLensGeometry(visibleReach, lensHeight, closeAtEdge: false);
         var opticalDrift = (float)(
@@ -439,7 +439,9 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
         var strandCount = Math.Min(_fineStrandPaths.Length, frame.FineStrands.Length);
         for (var index = 0; index < strandCount; index++)
         {
-            var strandGeometry = CreateSmoothPath(frame.FineStrands[index]);
+            var strandGeometry = CreateSmoothPath(
+                frame.FineStrands[index],
+                frame.OrbAttachmentRadius);
             _fineStrandPaths[index].Path = new WUC.CompositionPath(strandGeometry);
             _pendingGeometries.Add(strandGeometry);
         }
@@ -631,22 +633,61 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
         _shapeVisual.Shapes.Append(shape);
     }
 
-    private CanvasGeometry CreateSmoothPath(Vector2[] points)
+    private CanvasGeometry CreateSmoothPath(Vector2[] points, float orbAttachmentRadius)
     {
         using var builder = new CanvasPathBuilder(_canvasDevice);
-        builder.BeginFigure(points[0]);
-        for (var index = 0; index < points.Length - 1; index++)
+        var centerY = _heightDip / 2f;
+        var upperEnd = -1;
+        var lowerStart = points.Length;
+        for (var index = 0; index < points.Length; index++)
         {
-            var previous = points[Math.Max(0, index - 1)];
+            if (points[index].Y <= centerY - orbAttachmentRadius)
+            {
+                upperEnd = index;
+            }
+
+            if (lowerStart == points.Length &&
+                points[index].Y >= centerY + orbAttachmentRadius)
+            {
+                lowerStart = index;
+            }
+        }
+
+        AppendSmoothFigure(builder, points, 0, upperEnd);
+        AppendSmoothFigure(builder, points, lowerStart, points.Length - 1);
+        return CanvasGeometry.CreatePath(builder);
+    }
+
+    private static void AppendSmoothFigure(
+        CanvasPathBuilder builder,
+        Vector2[] points,
+        int start,
+        int end)
+    {
+        if (start < 0 || end >= points.Length || end - start < 1)
+        {
+            return;
+        }
+
+        builder.BeginFigure(points[start]);
+        for (var index = start; index < end; index++)
+        {
+            var previous = points[Math.Max(start, index - 1)];
             var current = points[index];
             var next = points[index + 1];
-            var following = points[Math.Min(points.Length - 1, index + 2)];
-            var controlOne = current + ((next - previous) / 6f);
-            var controlTwo = next - ((following - current) / 6f);
+            var following = points[Math.Min(end, index + 2)];
+            var minimumX = MathF.Min(current.X, next.X);
+            var maximumX = MathF.Max(current.X, next.X);
+            var controlOne = new Vector2(
+                Math.Clamp(current.X + ((next.X - previous.X) / 6f), minimumX, maximumX),
+                current.Y + ((next.Y - current.Y) / 3f));
+            var controlTwo = new Vector2(
+                Math.Clamp(next.X - ((following.X - current.X) / 6f), minimumX, maximumX),
+                current.Y + (((next.Y - current.Y) * 2f) / 3f));
             builder.AddCubicBezier(controlOne, controlTwo, next);
         }
+
         builder.EndFigure(CanvasFigureLoop.Open);
-        return CanvasGeometry.CreatePath(builder);
     }
 
     private CanvasGeometry CreateLensGeometry(

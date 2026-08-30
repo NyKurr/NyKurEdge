@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Numerics;
 using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.Brushes;
 using Microsoft.Graphics.Canvas.Geometry;
 using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI.Xaml;
@@ -31,6 +32,7 @@ internal readonly record struct EdgeFluidFrame(
     EdgeOrbScale OrbScale,
     EdgePressureField PressureField,
     double NotificationProgress,
+    float OrbAttachmentRadius,
     float Energy,
     double ElapsedSeconds);
 
@@ -43,9 +45,13 @@ internal readonly record struct EdgeFluidFrame(
 public sealed class EdgeWaveRenderer : IDisposable
 {
     private const int ControlPointCount = 17;
+    // Catmull-Rom-to-Bezier interpolation keeps these sparse samples smooth;
+    // the fallback path no longer needs thousands of tiny line segments.
     private const int RenderPointCount = 73;
-    internal const int FineStrandCount = 44;
-    private const double MaximumPresentationRate = 60;
+    internal const int FineStrandCount = 32;
+    private const int FineStrandGeometryGroupCount = 6;
+    private const double IdlePresentationRate = 36;
+    private const double ActivePresentationRate = 60;
 
     private readonly CanvasControl _canvas;
     private readonly EdgeWindowController _windowController;
@@ -66,6 +72,9 @@ public sealed class EdgeWaveRenderer : IDisposable
     private readonly Vector2[] _interferencePoints = new Vector2[RenderPointCount];
     private readonly Vector2[] _filamentPoints = new Vector2[RenderPointCount];
     private readonly Vector2[][] _fineStrandPoints = CreatePointMatrix(FineStrandCount, RenderPointCount);
+    private readonly CanvasGeometry?[] _fineStrandGeometries =
+        new CanvasGeometry?[FineStrandGeometryGroupCount];
+    private CanvasLinearGradientBrush? _verticalOpacityMask;
     private CanvasGeometry? _cachedLens;
     private CanvasGeometry? _cachedLensOutline;
     private LensCacheKey _lensCacheKey;
@@ -79,6 +88,7 @@ public sealed class EdgeWaveRenderer : IDisposable
     private double _lastNotificationExpansionProgress = -1;
     private double _expansionProgress;
     private double _intensity = 1;
+    private float _orbAttachmentRadius = 19f;
     private bool _isPlaying;
     private bool _isRunning;
     private bool _hasSimulationState;
@@ -261,6 +271,9 @@ public sealed class EdgeWaveRenderer : IDisposable
         _canvas.Draw -= OnDraw;
         _canvas.SizeChanged -= OnSizeChanged;
         _canvas.RemoveFromVisualTree();
+        _verticalOpacityMask?.Dispose();
+        _verticalOpacityMask = null;
+        DisposeFineStrandGeometries();
         _roundedStroke.Dispose();
         InvalidateLensCache();
         _clock.Stop();
@@ -274,7 +287,14 @@ public sealed class EdgeWaveRenderer : IDisposable
         }
 
         var seconds = _clock.Elapsed.TotalSeconds;
-        if (seconds - _lastRenderRequestSeconds < 1d / MaximumPresentationRate)
+        var notificationAge = (seconds - _notificationStartedAt) / _notificationTimingScale;
+        var isVisuallyActive = _isPlaying ||
+                               _expansionProgress > 0.001 ||
+                               notificationAge is >= 0 and <= 2.24;
+        var presentationRate = isVisuallyActive
+            ? ActivePresentationRate
+            : IdlePresentationRate;
+        if (seconds - _lastRenderRequestSeconds < 1d / presentationRate)
         {
             return;
         }
@@ -291,8 +311,12 @@ public sealed class EdgeWaveRenderer : IDisposable
 
     private void OnCreateResources(
         CanvasControl sender,
-        Microsoft.Graphics.Canvas.UI.CanvasCreateResourcesEventArgs args) =>
+        Microsoft.Graphics.Canvas.UI.CanvasCreateResourcesEventArgs args)
+    {
+        _verticalOpacityMask?.Dispose();
+        _verticalOpacityMask = null;
         InvalidateLensCache();
+    }
 
     private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
     {
@@ -327,11 +351,15 @@ public sealed class EdgeWaveRenderer : IDisposable
         }
 
         BuildContours(width, height, seconds, signal);
+        var notificationAge = (seconds - _notificationStartedAt) / _notificationTimingScale;
+        var notificationProgress = NotificationLensProgress(notificationAge);
+        PublishNotificationProgress(
+            notificationProgress,
+            NotificationIconProgress(notificationAge));
         if (!_windowController.HasNativeCollapsedSurface || _expansionProgress > 0.001)
         {
             DrawFluid(args.DrawingSession, sender, width, height, seconds, signal);
         }
-        var notificationAge = (seconds - _notificationStartedAt) / _notificationTimingScale;
         _windowController.RenderCollapsedEdge(new EdgeFluidFrame(
             _primaryPoints,
             _secondaryPoints,
@@ -341,7 +369,8 @@ public sealed class EdgeWaveRenderer : IDisposable
             _accentBrush.Color,
             _orbScale,
             _pressureField,
-            NotificationLensProgress(notificationAge),
+            notificationProgress,
+            _orbAttachmentRadius,
             (float)signal.Energy,
             seconds));
     }
@@ -422,6 +451,12 @@ public sealed class EdgeWaveRenderer : IDisposable
         var expansionReach = (float)(
             SmoothStep(_expansionProgress) * Math.Min(92, width * 0.23f));
         var notificationAge = (seconds - _notificationStartedAt) / _notificationTimingScale;
+        var notificationLens = NotificationLensProgress(notificationAge);
+        var idleOrbHeight = _orbScale == EdgeOrbScale.Small ? 31f : 38f;
+        var activeOrbRadius = (idleOrbHeight + ((float)notificationLens * 12f)) / 2f;
+        _orbAttachmentRadius = activeOrbRadius;
+        var orbRadiusNormalized = activeOrbRadius / Math.Max(1f, height);
+        var connectorLength = Math.Clamp(72f / Math.Max(1f, height), 0.072, 0.125);
 
         for (var index = 0; index < RenderPointCount; index++)
         {
@@ -429,21 +464,27 @@ public sealed class EdgeWaveRenderer : IDisposable
             var presence = VerticalPresence(normalized);
             var centerField = Gaussian(normalized, 0.5, 2.05);
             var centerCore = Gaussian(normalized, 0.5, 5.8);
-            var orbChannel = Gaussian(normalized, 0.5, 17.5);
             var shoulders =
                 Gaussian(normalized, 0.455, 21) +
                 Gaussian(normalized, 0.545, 21);
             var distantFlow =
                 Gaussian(normalized, 0.305, 7.4) +
                 Gaussian(normalized, 0.695, 7.4);
-            var splitAroundOrb = 1 - (orbChannel * 0.18);
+            var centerDistance = Math.Abs(normalized - 0.5);
+            var distanceFromOrb = Math.Max(0, centerDistance - orbRadiusNormalized);
+            var attachmentProgress = Math.Clamp(distanceFromOrb / connectorLength, 0, 1);
+            var attachmentGate = SmootherStep(attachmentProgress);
+            var attachmentShoulder = Gaussian(
+                centerDistance,
+                orbRadiusNormalized + (connectorLength * 0.78),
+                10.8);
             var baseReach = presence *
                             (2.1 +
                              ((14.2 + (playingReach * 0.52)) * centerField) +
                              ((19.4 + (playingReach * 0.76) + expression) * centerCore) +
                              (6.5 * shoulders) +
-                             (3.6 * distantFlow)) *
-                            splitAroundOrb;
+                             (3.6 * distantFlow) +
+                             (7.2 * attachmentShoulder));
             var primaryDrift = SampleNode(_primaryNodes, normalized) *
                                (3.7 + (signal.MidBand * 3.8));
             var secondaryDrift = SampleNode(_secondaryNodes, normalized) *
@@ -464,24 +505,24 @@ public sealed class EdgeWaveRenderer : IDisposable
             // Four structural depths form the quiet body of the field. They do
             // not track each other exactly, so the silhouette reads as pressure
             // and refraction instead of parallel wire.
-            var primaryReach = Math.Clamp(
+            var primaryReach = Math.Clamp(attachmentGate * (
                 (baseReach * 1.18) + (primaryDrift * 0.78) + fieldDrift +
-                notification + expansion,
+                notification + expansion),
                 0.15,
                 width - 2);
-            var secondaryReach = Math.Clamp(
+            var secondaryReach = Math.Clamp(attachmentGate * (
                 (baseReach * 0.78) + (secondaryDrift * 0.82) - (fieldDrift * 0.24) +
-                (notification * 0.66) + (expansion * 0.88),
+                (notification * 0.66) + (expansion * 0.88)),
                 0.1,
                 width - 2);
-            var interferenceReach = Math.Clamp(
+            var interferenceReach = Math.Clamp(attachmentGate * (
                 (baseReach * 1.52) - (primaryDrift * 0.22) + (secondaryDrift * 0.42) +
-                (fieldDrift * 0.35) + (notification * 0.84) + expansion,
+                (fieldDrift * 0.35) + (notification * 0.84) + expansion),
                 0.1,
                 width - 2);
-            var filamentReach = Math.Clamp(
+            var filamentReach = Math.Clamp(attachmentGate * (
                 (baseReach * 0.28) + (tertiaryDrift * 0.38) + (secondaryDrift * 0.12) +
-                (notification * 0.28) + (expansion * 0.72),
+                (notification * 0.28) + (expansion * 0.72)),
                 0.08,
                 width - 2);
 
@@ -500,16 +541,16 @@ public sealed class EdgeWaveRenderer : IDisposable
                     (normalized * (1.32 + (family * 0.18))) +
                     (family * 0.71),
                     613 + (family * 97));
-                var crossingFlow = SignedNoise(
+                var secondaryFlow = SignedNoise(
                     (-seconds * (0.024 + (lane * 0.008))) +
-                    (normalized * (2.18 + (lane * 0.64))) +
+                    (normalized * (1.58 + (lane * 0.32))) +
                     (lane * 3.7),
                     997);
-                var laneTwist =
-                    ((familyFlow * 0.052) + (crossingFlow * 0.035)) *
-                    laneWeight * (0.58 + (centerField * 0.72));
-                var twistedLane = Math.Clamp(lane + laneTwist, 0.012, 0.988);
-                var laneBlend = (twistedLane + SmootherStep(twistedLane)) * 0.5;
+                // Lane order is deliberately invariant. Animation moves the
+                // shared field around the strands; it never reorders adjacent
+                // filaments, which prevents crossings and small hook-shaped
+                // kinks close to the attachment point.
+                var laneBlend = (lane + SmootherStep(lane)) * 0.5;
                 var drift = Lerp(tertiaryDrift, primaryDrift, laneBlend) +
                             (secondaryDrift * laneWeight * 0.24);
                 var innerReach =
@@ -519,29 +560,26 @@ public sealed class EdgeWaveRenderer : IDisposable
                     (baseReach * 1.58) + (primaryDrift * 0.31) +
                     (fieldDrift * 0.48) + (notification * 0.88) + expansion;
                 var fieldFold =
-                    ((familyFlow * 0.58) + (crossingFlow * 0.42)) *
-                    presence * (0.55 + (centerField * 3.15)) *
-                    (0.38 + (laneWeight * 0.62));
-                var orbPressure = orbChannel *
-                                  (1.8 + (laneWeight * 7.6) + (signal.Energy * 1.8));
-                var strandReach = Math.Clamp(
+                    ((familyFlow * 0.64) + (secondaryFlow * 0.36)) *
+                    presence * (0.24 + (centerField * 1.36)) *
+                    (0.38 + (laneWeight * 0.62)) * attachmentGate;
+                var shoulderPressure = attachmentShoulder *
+                                       (1.4 + (laneWeight * 5.8) + (signal.Energy * 1.2));
+                var strandReach = Math.Clamp(attachmentGate * (
                     Lerp(innerReach, outerReach, laneBlend) +
                     (drift * (0.26 + (laneWeight * 0.26))) +
                     fieldFold +
-                    orbPressure +
-                    (notification * laneWeight * 0.16),
+                    shoulderPressure +
+                    (notification * laneWeight * 0.16)),
                     0.08,
                     width - 2);
-                var bundleSign = (strandIndex & 2) == 0 ? -1d : 1d;
-                var bundleBias = 0.88 + ((strandIndex % 4) * 0.065);
-                var verticalWrap = bundleSign * bundleBias * orbChannel *
-                                   (7.6 + (laneWeight * 7.3) + (signal.Energy * 2.5));
                 var microLift = SignedNoise(
                     (seconds * 0.041) +
                     (normalized * 2.42) +
                     (lane * 2.9),
-                    1481 + (family * 31)) * presence * (0.16 + (signal.HighBand * 0.28));
-                var strandY = Math.Clamp(y + (float)(verticalWrap + microLift), 0, height);
+                    1481 + (family * 31)) * presence * attachmentGate *
+                    (0.10 + (signal.HighBand * 0.18));
+                var strandY = Math.Clamp(y + (float)microLift, 0, height);
                 _fineStrandPoints[strandIndex][index] = new Vector2(
                     edgeX + (direction * (float)strandReach),
                     strandY);
@@ -561,67 +599,90 @@ public sealed class EdgeWaveRenderer : IDisposable
         var energy = (float)signal.Energy;
         var fieldScale = _pressureField == EdgePressureField.Airy ? 0.86f : 1.12f;
 
-        // Broad, almost subliminal strokes form translucent ribbon bodies. No
-        // closed fill is used in idle mode, so the wallpaper remains untouched
-        // outside the light actually contributed by the fluid field.
-        DrawContour(drawingSession, _interferencePoints, accent, 32f, (byte)(5 * fieldScale), height);
-        DrawContour(drawingSession, _primaryPoints, accent, 22f, (byte)(8 * fieldScale), height);
-        DrawContour(drawingSession, _secondaryPoints, accent, 15f, (byte)(7 * fieldScale), height);
-        DrawContour(drawingSession, _filamentPoints, accent, 9f, (byte)(5 * fieldScale), height);
-        DrawContour(
-            drawingSession,
-            _primaryPoints,
-            accent,
-            9.5f,
-            (byte)((11 + (energy * 3)) * fieldScale),
-            height);
-
-        // A small structural family carries the silhouette. Their separation is
-        // intentional; none is heavy enough to become the old cable-like edge.
-        DrawContour(drawingSession, _interferencePoints, accent, 1.08f, 25, height);
-        DrawContour(drawingSession, _primaryPoints, accent, 0.92f, (byte)(50 + (energy * 12)), height);
-        DrawContour(drawingSession, _secondaryPoints, accent, 0.68f, 34, height);
-        DrawContour(drawingSession, _filamentPoints, accent, 0.48f, 38, height);
-
-        for (var strandIndex = 0; strandIndex < FineStrandCount; strandIndex++)
+        // Convert each moving contour into a smooth cubic path once per frame,
+        // then reuse it for every optical depth. The former segment renderer
+        // issued thousands of DrawLine calls and made higher sample counts far
+        // too expensive for an always-on surface.
+        using var primaryGeometry = CreateSmoothContourGeometry(canvas, _primaryPoints);
+        using var secondaryGeometry = CreateSmoothContourGeometry(canvas, _secondaryPoints);
+        using var interferenceGeometry = CreateSmoothContourGeometry(canvas, _interferencePoints);
+        using var filamentGeometry = CreateSmoothContourGeometry(canvas, _filamentPoints);
+        try
         {
-            var normalizedLane = strandIndex / (float)(FineStrandCount - 1);
-            var centerEmphasis = MathF.Sin(normalizedLane * MathF.PI);
-            var isOpticalHighlight = IsOpticalHighlight(strandIndex);
-            var strandColor = isOpticalHighlight
-                ? Color.FromArgb(255, 244, 248, 252)
-                : accent;
-            var alpha = (byte)Math.Clamp(
-                (int)Math.Round(
-                    ((isOpticalHighlight ? 38 : 17) +
-                     (centerEmphasis * (isOpticalHighlight ? 28 : 30)) +
-                     (energy * 9)) * fieldScale),
-                7,
-                72);
-            var widthScale = (isOpticalHighlight ? 0.42f : 0.30f) +
-                             (centerEmphasis * (isOpticalHighlight ? 0.22f : 0.25f));
-            DrawContour(
-                drawingSession,
-                _fineStrandPoints[strandIndex],
-                strandColor,
-                widthScale,
-                alpha,
-                height);
+            for (var group = 0; group < FineStrandGeometryGroupCount; group++)
+            {
+                _fineStrandGeometries[group] = CreateFineStrandGeometry(canvas, group);
+            }
+
+            var opacityMask = GetVerticalOpacityMask(canvas, height);
+            using (drawingSession.CreateLayer(opacityMask))
+            {
+                // Broad, almost subliminal strokes form translucent ribbon
+                // bodies. No closed fill is used, so the desktop remains the
+                // actual background of the collapsed field.
+                DrawContourGeometry(drawingSession, interferenceGeometry, accent, 32f, (byte)(5 * fieldScale));
+                DrawContourGeometry(drawingSession, primaryGeometry, accent, 22f, (byte)(8 * fieldScale));
+                DrawContourGeometry(drawingSession, secondaryGeometry, accent, 15f, (byte)(7 * fieldScale));
+                DrawContourGeometry(drawingSession, filamentGeometry, accent, 9f, (byte)(5 * fieldScale));
+                DrawContourGeometry(
+                    drawingSession,
+                    primaryGeometry,
+                    accent,
+                    9.5f,
+                    (byte)((11 + (energy * 3)) * fieldScale));
+
+                DrawContourGeometry(drawingSession, interferenceGeometry, accent, 1.08f, 25);
+                DrawContourGeometry(
+                    drawingSession,
+                    primaryGeometry,
+                    accent,
+                    0.92f,
+                    (byte)(50 + (energy * 12)));
+                DrawContourGeometry(drawingSession, secondaryGeometry, accent, 0.68f, 34);
+                DrawContourGeometry(drawingSession, filamentGeometry, accent, 0.48f, 38);
+
+                for (var group = 0; group < FineStrandGeometryGroupCount; group++)
+                {
+                    var isOpticalHighlight = group == FineStrandGeometryGroupCount - 1;
+                    var centerEmphasis = isOpticalHighlight ? 0.74f : group / 4f;
+                    var strandColor = isOpticalHighlight
+                        ? Color.FromArgb(255, 244, 248, 252)
+                        : accent;
+                    var alpha = (byte)Math.Clamp(
+                        (int)Math.Round(
+                            ((isOpticalHighlight ? 38 : 17) +
+                             (centerEmphasis * (isOpticalHighlight ? 28 : 30)) +
+                             (energy * 9)) * fieldScale),
+                        7,
+                        72);
+                    var widthScale = (isOpticalHighlight ? 0.42f : 0.30f) +
+                                     (centerEmphasis * (isOpticalHighlight ? 0.22f : 0.25f));
+                    DrawContourGeometry(
+                        drawingSession,
+                        _fineStrandGeometries[group]!,
+                        strandColor,
+                        widthScale,
+                        alpha);
+                }
+
+                DrawContourGeometry(
+                    drawingSession,
+                    primaryGeometry,
+                    Color.FromArgb(255, 246, 249, 252),
+                    0.32f,
+                    22);
+                DrawContourGeometry(
+                    drawingSession,
+                    filamentGeometry,
+                    Color.FromArgb(255, 246, 250, 253),
+                    0.40f,
+                    34);
+            }
         }
-        DrawContour(
-            drawingSession,
-            _primaryPoints,
-            Color.FromArgb(255, 246, 249, 252),
-            0.32f,
-            22,
-            height);
-        DrawContour(
-            drawingSession,
-            _filamentPoints,
-            Color.FromArgb(255, 246, 250, 253),
-            0.40f,
-            34,
-            height);
+        finally
+        {
+            DisposeFineStrandGeometries();
+        }
 
         DrawMorphingLens(
             drawingSession,
@@ -646,8 +707,6 @@ public sealed class EdgeWaveRenderer : IDisposable
     {
         var notificationAge = (seconds - _notificationStartedAt) / _notificationTimingScale;
         var notification = NotificationLensProgress(notificationAge);
-        var iconProgress = SmoothStep(Math.Clamp((notification - 0.16) / 0.76, 0, 1));
-        PublishNotificationProgress(notification, iconProgress);
 
         var baseHeight = _orbScale == EdgeOrbScale.Small ? 31f : 38f;
         var baseReach = _orbScale == EdgeOrbScale.Small ? 16f : 21f;
@@ -765,14 +824,20 @@ public sealed class EdgeWaveRenderer : IDisposable
 
     private void PublishNotificationProgress(double expansionProgress, double iconProgress)
     {
-        if (Math.Abs(expansionProgress - _lastNotificationExpansionProgress) > 0.012 ||
-            expansionProgress is 0 or 1)
+        var expansionEndpointChanged =
+            expansionProgress is 0 or 1 &&
+            expansionProgress != _lastNotificationExpansionProgress;
+        if (Math.Abs(expansionProgress - _lastNotificationExpansionProgress) > 0.001 ||
+            expansionEndpointChanged)
         {
             _lastNotificationExpansionProgress = expansionProgress;
             NotificationExpansionProgressChanged?.Invoke(expansionProgress);
         }
 
-        if (Math.Abs(iconProgress - _lastNotificationIconProgress) > 0.012 || iconProgress is 0 or 1)
+        var iconEndpointChanged =
+            iconProgress is 0 or 1 &&
+            iconProgress != _lastNotificationIconProgress;
+        if (Math.Abs(iconProgress - _lastNotificationIconProgress) > 0.001 || iconEndpointChanged)
         {
             _lastNotificationIconProgress = iconProgress;
             NotificationIconProgressChanged?.Invoke(iconProgress);
@@ -929,32 +994,138 @@ public sealed class EdgeWaveRenderer : IDisposable
         _lensCacheKey = default;
     }
 
-    private void DrawContour(
-        CanvasDrawingSession drawingSession,
-        Vector2[] points,
-        Color color,
-        float strokeWidth,
-        byte peakAlpha,
-        float height)
+    private CanvasGeometry CreateSmoothContourGeometry(
+        CanvasControl canvas,
+        Vector2[] points)
     {
-        for (var index = 1; index < points.Length; index++)
+        using var builder = new CanvasPathBuilder(canvas);
+        AppendVisibleArms(builder, points);
+        return CanvasGeometry.CreatePath(builder);
+    }
+
+    private CanvasGeometry CreateFineStrandGeometry(CanvasControl canvas, int group)
+    {
+        using var builder = new CanvasPathBuilder(canvas);
+        for (var strandIndex = 0; strandIndex < FineStrandCount; strandIndex++)
         {
-            var midpointY = (points[index - 1].Y + points[index].Y) / 2f;
-            var normalized = midpointY / Math.Max(1f, height);
-            var opacity = VerticalOpacity(normalized);
-            var alpha = (byte)Math.Clamp((int)Math.Round(peakAlpha * opacity), 0, 255);
-            if (alpha < 2)
+            if (FineStrandGeometryGroup(strandIndex) == group)
             {
-                continue;
+                AppendVisibleArms(builder, _fineStrandPoints[strandIndex]);
+            }
+        }
+
+        return CanvasGeometry.CreatePath(builder);
+    }
+
+    private void AppendVisibleArms(CanvasPathBuilder builder, Vector2[] points)
+    {
+        var centerY = _canvas.ActualHeight / 2f;
+        var upperEnd = -1;
+        var lowerStart = points.Length;
+        for (var index = 0; index < points.Length; index++)
+        {
+            if (points[index].Y <= centerY - _orbAttachmentRadius)
+            {
+                upperEnd = index;
             }
 
-            drawingSession.DrawLine(
-                points[index - 1],
-                points[index],
-                Color.FromArgb(alpha, color.R, color.G, color.B),
-                strokeWidth,
-                _roundedStroke);
+            if (lowerStart == points.Length &&
+                points[index].Y >= centerY + _orbAttachmentRadius)
+            {
+                lowerStart = index;
+            }
         }
+
+        AppendSmoothFigure(builder, points, 0, upperEnd);
+        AppendSmoothFigure(builder, points, lowerStart, points.Length - 1);
+    }
+
+    private static void AppendSmoothFigure(
+        CanvasPathBuilder builder,
+        Vector2[] points,
+        int start,
+        int end)
+    {
+        if (start < 0 || end >= points.Length || end - start < 1)
+        {
+            return;
+        }
+
+        builder.BeginFigure(points[start]);
+        for (var index = start; index < end; index++)
+        {
+            var previous = points[Math.Max(start, index - 1)];
+            var current = points[index];
+            var next = points[index + 1];
+            var following = points[Math.Min(end, index + 2)];
+            var minimumX = MathF.Min(current.X, next.X);
+            var maximumX = MathF.Max(current.X, next.X);
+            var controlOne = new Vector2(
+                Math.Clamp(current.X + ((next.X - previous.X) / 6f), minimumX, maximumX),
+                Lerp(current.Y, next.Y, 1f / 3f));
+            var controlTwo = new Vector2(
+                Math.Clamp(next.X - ((following.X - current.X) / 6f), minimumX, maximumX),
+                Lerp(current.Y, next.Y, 2f / 3f));
+            builder.AddCubicBezier(controlOne, controlTwo, next);
+        }
+
+        builder.EndFigure(CanvasFigureLoop.Open);
+    }
+
+    private CanvasLinearGradientBrush GetVerticalOpacityMask(CanvasControl canvas, float height)
+    {
+        _verticalOpacityMask ??= new CanvasLinearGradientBrush(
+            canvas,
+            [
+                new CanvasGradientStop { Position = 0f, Color = Color.FromArgb(0, 255, 255, 255) },
+                new CanvasGradientStop { Position = 0.065f, Color = Color.FromArgb(14, 255, 255, 255) },
+                new CanvasGradientStop { Position = 0.19f, Color = Color.FromArgb(90, 255, 255, 255) },
+                new CanvasGradientStop { Position = 0.34f, Color = Color.FromArgb(210, 255, 255, 255) },
+                new CanvasGradientStop { Position = 0.46f, Color = Color.FromArgb(255, 255, 255, 255) },
+                new CanvasGradientStop { Position = 0.54f, Color = Color.FromArgb(255, 255, 255, 255) },
+                new CanvasGradientStop { Position = 0.66f, Color = Color.FromArgb(210, 255, 255, 255) },
+                new CanvasGradientStop { Position = 0.81f, Color = Color.FromArgb(90, 255, 255, 255) },
+                new CanvasGradientStop { Position = 0.935f, Color = Color.FromArgb(14, 255, 255, 255) },
+                new CanvasGradientStop { Position = 1f, Color = Color.FromArgb(0, 255, 255, 255) },
+            ]);
+        _verticalOpacityMask.StartPoint = Vector2.Zero;
+        _verticalOpacityMask.EndPoint = new Vector2(0, height);
+        return _verticalOpacityMask;
+    }
+
+    private void DrawContourGeometry(
+        CanvasDrawingSession drawingSession,
+        CanvasGeometry geometry,
+        Color color,
+        float strokeWidth,
+        byte alpha)
+    {
+        drawingSession.DrawGeometry(
+            geometry,
+            Color.FromArgb(alpha, color.R, color.G, color.B),
+            strokeWidth,
+            _roundedStroke);
+    }
+
+    private void DisposeFineStrandGeometries()
+    {
+        for (var index = 0; index < _fineStrandGeometries.Length; index++)
+        {
+            _fineStrandGeometries[index]?.Dispose();
+            _fineStrandGeometries[index] = null;
+        }
+    }
+
+    private static int FineStrandGeometryGroup(int strandIndex)
+    {
+        if (IsOpticalHighlight(strandIndex))
+        {
+            return FineStrandGeometryGroupCount - 1;
+        }
+
+        var normalizedLane = strandIndex / (float)(FineStrandCount - 1);
+        var centerEmphasis = MathF.Sin(normalizedLane * MathF.PI);
+        return Math.Clamp((int)MathF.Round(centerEmphasis * 4f), 0, 4);
     }
 
     private double VerticalPresence(double normalized)
@@ -966,12 +1137,6 @@ public sealed class EdgeWaveRenderer : IDisposable
         var broadCenter = Gaussian(normalized, 0.5, centerSharpness);
         var floor = _verticalReach == EdgeVerticalReach.Extended ? 0.085 : 0.055;
         return edgeFade * (floor + ((1 - floor) * broadCenter));
-    }
-
-    private double VerticalOpacity(double normalized)
-    {
-        var presence = VerticalPresence(normalized);
-        return Math.Pow(Math.Clamp(presence, 0, 1), 1.12);
     }
 
     private void Invalidate()
@@ -1001,52 +1166,73 @@ public sealed class EdgeWaveRenderer : IDisposable
         double age,
         int travelDirection)
     {
-        if (age is < 0 or > 2.04)
+        if (age is < 0 or > 2.24)
         {
             return 0;
         }
 
-        var incomingProgress = Math.Clamp(age / 0.47, 0, 1);
+        // One pressure packet approaches the lens, is absorbed, and becomes a
+        // pair of broad outgoing ripples. Each phase overlaps the next with
+        // zero-velocity easing, so there is no visible hand-off or sudden pop.
+        var incomingProgress = Math.Clamp(age / 0.66, 0, 1);
         var source = travelDirection >= 0 ? 0.14 : 0.86;
         var incomingCenter = Lerp(source, 0.5, SmootherStep(incomingProgress));
-        var incomingEnvelope = 1 - SmoothStep(Math.Clamp((age - 0.34) / 0.22, 0, 1));
-        var incoming = Gaussian(normalizedY, incomingCenter, 31) * incomingEnvelope * 13.5;
+        var incomingEnvelope =
+            SmootherStep(Math.Clamp(age / 0.10, 0, 1)) *
+            (1 - SmootherStep(Math.Clamp((age - 0.48) / 0.30, 0, 1)));
+        var incoming = Gaussian(normalizedY, incomingCenter, 27) * incomingEnvelope * 11.8;
 
-        if (age < 0.34)
-        {
-            return incoming;
-        }
+        var impactEnvelope =
+            SmootherStep(Math.Clamp((age - 0.48) / 0.18, 0, 1)) *
+            (1 - SmootherStep(Math.Clamp((age - 0.78) / 0.30, 0, 1)));
+        var impact = Gaussian(normalizedY, 0.5, 16.5) * impactEnvelope * 5.4;
 
-        var impact = Gaussian(normalizedY, 0.5, 18) *
-                     Math.Sin(Math.PI * Math.Clamp((age - 0.32) / 0.46, 0, 1)) * 5.2;
-        var rippleProgress = Math.Clamp((age - 0.34) / 1.70, 0, 1);
+        var rippleProgress = Math.Clamp((age - 0.64) / 1.60, 0, 1);
         var radius = SmootherStep(rippleProgress) * 0.49;
         var distance = Math.Abs(normalizedY - 0.5);
-        var leading = Math.Exp(-Math.Pow((distance - radius) * 27, 2)) *
-                      Math.Pow(1 - rippleProgress, 1.18) * 15.5;
-        var trailingRadius = Math.Max(0, radius - 0.046);
-        var trailing = -Math.Exp(-Math.Pow((distance - trailingRadius) * 23, 2)) *
-                       Math.Pow(1 - rippleProgress, 1.34) * 4.8;
+        var rippleEnvelope =
+            SmootherStep(Math.Clamp((age - 0.64) / 0.14, 0, 1)) *
+            (1 - SmootherStep(Math.Clamp((age - 1.62) / 0.62, 0, 1)));
+        var leading = Math.Exp(-Math.Pow((distance - radius) * 23, 2)) *
+                      rippleEnvelope * 11.6;
+        var trailingRadius = Math.Max(0, radius - 0.052);
+        var trailing = -Math.Exp(-Math.Pow((distance - trailingRadius) * 19, 2)) *
+                       rippleEnvelope * 3.1;
         return incoming + impact + leading + trailing;
     }
 
     private static double NotificationLensProgress(double age)
     {
-        if (age is < 0.16 or > 1.96)
+        if (age is < 0.46 or > 2.16)
         {
             return 0;
         }
 
-        if (age < 0.45)
+        if (age < 0.78)
         {
-            return SmootherStep((age - 0.16) / 0.29);
+            return SmootherStep((age - 0.46) / 0.32);
         }
 
-        return age < 1.26 ? 1 : 1 - SmootherStep((age - 1.26) / 0.70);
+        return age < 1.40 ? 1 : 1 - SmootherStep((age - 1.40) / 0.76);
+    }
+
+    private static double NotificationIconProgress(double age)
+    {
+        if (age is < 0.62 or > 1.98)
+        {
+            return 0;
+        }
+
+        if (age < 0.86)
+        {
+            return SmootherStep((age - 0.62) / 0.24);
+        }
+
+        return age < 1.42 ? 1 : 1 - SmootherStep((age - 1.42) / 0.56);
     }
 
     private static bool IsOpticalHighlight(int strandIndex) =>
-        strandIndex is 8 or 21 or 35;
+        strandIndex is 6 or 15 or 25;
 
     private static double SignedNoise(double value, int seed)
     {

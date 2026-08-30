@@ -62,6 +62,7 @@ public sealed class EdgeWindowController : IDisposable
     private bool _isSettingsInteractive;
     private bool _isPinnedInteractive;
     private bool _isExpandedBackdropApplied;
+    private bool _isAcrylicTargetAttached;
     private bool _canApplyAdaptiveRegion;
     private bool _windowRegionApplied;
     private int _regionWidth;
@@ -93,10 +94,6 @@ public sealed class EdgeWindowController : IDisposable
                 Theme = SystemBackdropTheme.Dark,
             };
             _acrylicController = new DesktopAcrylicController();
-            _acrylicController.AddSystemBackdropTarget(
-                window.As<ICompositionSupportsSystemBackdrop>());
-            _acrylicController.SetSystemBackdropConfiguration(_backdropConfiguration);
-            ConfigureAcrylicMaterial(expanded: false);
         }
         _isExpandedBackdropApplied = false;
         _display = displayService.GetPrimaryDisplay();
@@ -272,12 +269,16 @@ public sealed class EdgeWindowController : IDisposable
     {
         ThrowIfDisposed();
         progress = Math.Clamp(progress, 0, 1);
-        if (Math.Abs(progress - _notificationExpansion) < 0.006)
+        // Reserve the notification lens' maximum input/render region for the
+        // whole visible response. The glass still animates continuously, but
+        // its HWND clip no longer grows in quantized one-pixel steps.
+        var reservedProgress = progress > 0 ? 1d : 0d;
+        if (reservedProgress == _notificationExpansion)
         {
             return;
         }
 
-        _notificationExpansion = progress;
+        _notificationExpansion = reservedProgress;
         if (_canApplyAdaptiveRegion && _regionWidth > 0 && _regionHeight > 0)
         {
             ApplyWindowRegion(_regionWidth, _regionHeight, _progress);
@@ -719,7 +720,29 @@ public sealed class EdgeWindowController : IDisposable
 
         if (_acrylicController is not null)
         {
-            ConfigureAcrylicMaterial(visible);
+            if (visible)
+            {
+                if (!_isAcrylicTargetAttached)
+                {
+                    _acrylicController.AddSystemBackdropTarget(
+                        _window.As<ICompositionSupportsSystemBackdrop>());
+                    if (_backdropConfiguration is not null)
+                    {
+                        _acrylicController.SetSystemBackdropConfiguration(_backdropConfiguration);
+                    }
+                    _isAcrylicTargetAttached = true;
+                }
+
+                ConfigureAcrylicMaterial(expanded: true);
+            }
+            else if (_isAcrylicTargetAttached)
+            {
+                // A zero-opacity acrylic target can still composite a dark
+                // fallback silhouette on transparent WinUI windows. Detach it
+                // completely so collapsed mode contains only Win2D pixels.
+                _acrylicController.RemoveAllSystemBackdropTargets();
+                _isAcrylicTargetAttached = false;
+            }
         }
         else if (_expandedBackdrop is not null)
         {

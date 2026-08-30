@@ -260,7 +260,7 @@ public sealed partial class MainPage : Page, IDisposable
             case 1:
                 _visualTestNotificationContext = true;
                 UpdateContextSurface();
-                _edgeRenderer.TriggerNotificationPulse(timingScale: 4);
+                _edgeRenderer.TriggerNotificationPulse(timingScale: 3);
                 _windowController.SetVisualInspectionStatus("NyKur Edge QA · notification");
                 break;
             case 2:
@@ -504,7 +504,7 @@ public sealed partial class MainPage : Page, IDisposable
                 case "notification":
                     _visualTestNotificationContext = true;
                     UpdateContextSurface();
-                    _edgeRenderer.TriggerNotificationPulse(timingScale: 4);
+                    _edgeRenderer.TriggerNotificationPulse(timingScale: 3);
                     break;
                 case "expanded":
                     _visualTestExpanded = true;
@@ -580,7 +580,7 @@ public sealed partial class MainPage : Page, IDisposable
             case VirtualKey.F7:
                 _visualTestNotificationContext = true;
                 UpdateContextSurface();
-                _edgeRenderer.TriggerNotificationPulse(timingScale: 4);
+                _edgeRenderer.TriggerNotificationPulse(timingScale: 3);
                 _windowController.SetVisualInspectionStatus("NyKur Edge QA · notification");
                 break;
             case VirtualKey.F8:
