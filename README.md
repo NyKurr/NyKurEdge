@@ -25,9 +25,11 @@ WinUI 3 application, not a browser shell or throwaway prototype.
 - Artwork-derived automatic accents using OKLab candidate scoring and restrained
   chroma/lightness normalization.
 - Persisted manual accent mode with a native WinUI color picker.
-- Sparse procedural signal targets with continuously spring-interpolated rendering,
-  reused sample buffers, bounded transient geometry lifetime, and an explicit seam
-  for future real audio data; the current motion is not audio-reactive.
+- Sparse procedural idle targets with continuously spring-interpolated rendering,
+  reused sample buffers, bounded transient geometry lifetime, and live in-memory
+  WASAPI loopback energy plus low/mid/high-band input while media is playing.
+- A restrained two-stage atmospheric glow that breathes with the idle tide and
+  follows real output energy without adding an opaque backdrop.
 - Generic glance coordinator and scheduled/previewable clock glance.
 - Supported `UserNotificationListener` integration, source filtering, privacy
   levels, permission state, notification preview state, and a bubble/icon/ripple
@@ -43,6 +45,7 @@ WinUI 3 application, not a browser shell or throwaway prototype.
 - Windows App SDK 2.4 modular packages
 - Windows SDK Build Tools `10.0.28000.2526`
 - Single-project MSIX packaging and WinApp CLI run support
+- NAudio WASAPI `3.0.1` for memory-only system-output analysis
 - MSTest 4 for pure core-logic tests
 
 The project targets `net10.0-windows10.0.26100.0` and supports Windows build
@@ -128,5 +131,6 @@ and [current status](docs/STATUS.md) for the design rationale and known boundari
 ## Privacy and telemetry
 
 NyKur Edge stores settings locally. It has no analytics, ads, cloud database,
-account system, paid API, or provider credential. Media artwork and notification
-content remain in memory; no audio or notification content is recorded to disk.
+account system, paid API, or provider credential. Media artwork, notification
+content, and short audio-analysis buffers remain in memory; no audio or
+notification content is recorded to disk.

@@ -27,6 +27,10 @@ and small policies. Its tests run without a desktop session.
 - `JsonSettingsStore` performs recoverable local persistence.
 - `WindowsArtworkAccentExtractor` decodes a bounded artwork sample before handing
   pixels to the pure OKLab selector.
+- `WindowsLoopbackAudioAnalyzer` reduces the default render endpoint to normalized
+  energy and low/mid/high-band snapshots. It retains only a small circular sample
+  buffer, never writes audio, and uses bounded recovery after capture startup or
+  stream failures.
 
 `NyKurEdge.App` is the composition root and presentation layer. `AppServices`
 constructs the small service graph explicitly; there is no container or service
@@ -116,11 +120,12 @@ intentional pinned-open launcher state. The visible half-orb is the click target
 pinning temporarily permits window activation, while passive hover retains the
 normal no-activation behavior.
 
-`IEdgeMotionSource` supplies normalized energy/band values. The current
-`ProceduralEdgeMotionSource` is deterministic and explicitly non-audio-reactive;
-a future loopback analyzer can replace it without changing geometry or media
-discovery. Notification timing remains coordinated by `EdgeBubbleController`,
-while its pulse, orb displacement, and ripple are rendered by the same field path.
+`IEdgeMotionSource` supplies normalized energy/band values.
+`AudioReactiveEdgeMotionSource` blends fresh memory-only WASAPI spectrum snapshots
+into the renderer and eases back to `ProceduralEdgeMotionSource` for idle, pause,
+stale input, or capture unavailability. Notification timing remains coordinated by
+`EdgeBubbleController`, while its pulse, orb displacement, and ripple are rendered
+by the same field path.
 
 ## Media
 
@@ -129,9 +134,11 @@ Spotify-specific API. Session and playback events publish immutable snapshots.
 Artwork reads are bounded to 8 MB, and decoded color analysis is downsampled to
 64 pixels on the longest working dimension.
 
-The initial edge signal is procedural and does not claim audio reactivity. The
-renderer contract is ready for a later loopback-audio analyzer without changing
-media discovery or presentation state.
+While global media reports playback, a separate default-output loopback analyzer
+provides real energy and low/mid/high-band motion input. This is deliberately
+system-output analysis rather than provider-specific integration, so other audible
+system sounds can influence the field during playback. Process-specific capture is
+a future refinement and does not affect media discovery or presentation state.
 
 ## Accent engine
 

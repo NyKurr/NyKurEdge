@@ -68,7 +68,8 @@ public sealed partial class MainPage : Page, IDisposable
         _edgeRenderer = new EdgeWaveRenderer(
             FluidCanvas,
             GetApplicationBrush("NyKurAccentBrush"),
-            _windowController);
+            _windowController,
+            new AudioReactiveEdgeMotionSource(_services.AudioVisualization));
         _edgeRenderer.NotificationIconProgressChanged += OnNotificationIconProgressChanged;
         _edgeRenderer.NotificationExpansionProgressChanged += OnNotificationExpansionProgressChanged;
         _accentController = new AccentTransitionController(
@@ -514,6 +515,10 @@ public sealed partial class MainPage : Page, IDisposable
         {
             switch (token.ToLowerInvariant())
             {
+                case "idle":
+                    _visualTestPlaying = false;
+                    _edgeRenderer.SetPlaying(false);
+                    break;
                 case "playing":
                     _visualTestPlaying = true;
                     _edgeRenderer.SetPlaying(true);

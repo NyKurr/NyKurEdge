@@ -34,6 +34,7 @@ internal readonly record struct EdgeFluidFrame(
     double NotificationProgress,
     float OrbAttachmentRadius,
     float Energy,
+    float GlowIntensity,
     double ElapsedSeconds);
 
 /// <summary>
@@ -75,6 +76,9 @@ public sealed class EdgeWaveRenderer : IDisposable
     private readonly CanvasGeometry?[] _fineStrandGeometries =
         new CanvasGeometry?[FineStrandGeometryGroupCount];
     private CanvasLinearGradientBrush? _verticalOpacityMask;
+    private CanvasRadialGradientBrush? _ambientGlowBrush;
+    private CanvasRadialGradientBrush? _orbGlowBrush;
+    private uint _glowBrushAccent = uint.MaxValue;
     private CanvasGeometry? _cachedLens;
     private CanvasGeometry? _cachedLensOutline;
     private LensCacheKey _lensCacheKey;
@@ -273,6 +277,7 @@ public sealed class EdgeWaveRenderer : IDisposable
         _canvas.RemoveFromVisualTree();
         _verticalOpacityMask?.Dispose();
         _verticalOpacityMask = null;
+        DisposeGlowResources();
         DisposeFineStrandGeometries();
         _roundedStroke.Dispose();
         InvalidateLensCache();
@@ -315,6 +320,7 @@ public sealed class EdgeWaveRenderer : IDisposable
     {
         _verticalOpacityMask?.Dispose();
         _verticalOpacityMask = null;
+        DisposeGlowResources();
         InvalidateLensCache();
     }
 
@@ -331,6 +337,7 @@ public sealed class EdgeWaveRenderer : IDisposable
         var deltaSeconds = Math.Clamp(seconds - _lastFrameSeconds, 0, 0.12);
         _lastFrameSeconds = seconds;
         var signal = _motionSource.Sample(seconds, _isPlaying).Normalize();
+        var glowIntensity = CalculateGlowIntensity(seconds, signal);
 
         if (seconds >= _nextTargetSeconds)
         {
@@ -358,7 +365,14 @@ public sealed class EdgeWaveRenderer : IDisposable
             NotificationIconProgress(notificationAge));
         if (!_windowController.HasNativeCollapsedSurface || _expansionProgress > 0.001)
         {
-            DrawFluid(args.DrawingSession, sender, width, height, seconds, signal);
+            DrawFluid(
+                args.DrawingSession,
+                sender,
+                width,
+                height,
+                seconds,
+                signal,
+                glowIntensity);
         }
         _windowController.RenderCollapsedEdge(new EdgeFluidFrame(
             _primaryPoints,
@@ -372,6 +386,7 @@ public sealed class EdgeWaveRenderer : IDisposable
             notificationProgress,
             _orbAttachmentRadius,
             (float)signal.Energy,
+            glowIntensity,
             seconds));
     }
 
@@ -593,11 +608,22 @@ public sealed class EdgeWaveRenderer : IDisposable
         float width,
         float height,
         double seconds,
-        EdgeMotionSignal signal)
+        EdgeMotionSignal signal,
+        float glowIntensity)
     {
         var accent = _accentBrush.Color;
         var energy = (float)signal.Energy;
         var fieldScale = _pressureField == EdgePressureField.Airy ? 0.86f : 1.12f;
+
+        DrawAtmosphericGlow(
+            drawingSession,
+            canvas,
+            width,
+            height,
+            seconds,
+            signal,
+            accent,
+            glowIntensity * fieldScale);
 
         // Convert each moving contour into a smooth cubic path once per frame,
         // then reuse it for every optical depth. The former segment renderer
@@ -693,6 +719,59 @@ public sealed class EdgeWaveRenderer : IDisposable
             SmoothStep(_expansionProgress),
             accent,
             signal);
+    }
+
+    private void DrawAtmosphericGlow(
+        CanvasDrawingSession drawingSession,
+        CanvasControl canvas,
+        float width,
+        float height,
+        double seconds,
+        EdgeMotionSignal signal,
+        Color accent,
+        float intensity)
+    {
+        var direction = _side == EdgeSide.Right ? -1f : 1f;
+        var edgeX = _side == EdgeSide.Right ? width : 0f;
+        var centerY = height / 2f;
+        var slowDrift = (float)(
+            (Math.Sin(seconds * 0.53) * 0.64) +
+            (Math.Sin((seconds * 0.31) + 1.73) * 0.36));
+        var slowerDrift = (float)Math.Sin((seconds * 0.19) + 0.82);
+        var bassLift = _isPlaying ? (float)signal.LowBand : 0f;
+        var expansionFade = (float)(1 - (SmoothStep(_expansionProgress) * 0.62));
+        intensity = Math.Clamp(intensity * expansionFade, 0.68f, 1.42f);
+
+        // The broad field originates almost behind the physical monitor edge.
+        // Only its inward falloff is visible, matching the reference lighting
+        // without ever introducing a rectangular or circular UI backdrop.
+        var broadCenter = new Vector2(
+            edgeX + (direction * (10f + (slowDrift * 1.4f))),
+            centerY + (slowerDrift * 2.1f));
+        var broadRadiusX = Math.Min(
+            Math.Max(78f, width * 0.86f),
+            108f) * (1f + (slowDrift * 0.025f) + (bassLift * 0.045f));
+        var broadRadiusY = Math.Min(
+            Math.Max(132f, height * 0.21f),
+            184f) * (1f - (slowDrift * 0.018f) + (bassLift * 0.025f));
+        var broadBrush = GetAmbientGlowBrush(canvas, accent);
+        broadBrush.Center = broadCenter;
+        broadBrush.OriginOffset = new Vector2(-direction * 9f, -4f + (slowDrift * 1.2f));
+        broadBrush.RadiusX = broadRadiusX;
+        broadBrush.RadiusY = broadRadiusY;
+        broadBrush.Opacity = Math.Clamp(16f * intensity, 10f, 24f) / byte.MaxValue;
+        drawingSession.FillEllipse(broadCenter, broadRadiusX, broadRadiusY, broadBrush);
+
+        var orbCenter = new Vector2(edgeX, centerY + (slowDrift * 0.55f));
+        var orbRadiusX = (38f + (bassLift * 4.2f)) * (1f + (slowerDrift * 0.018f));
+        var orbRadiusY = (58f + (bassLift * 5.5f)) * (1f - (slowerDrift * 0.012f));
+        var orbBrush = GetOrbGlowBrush(canvas, accent);
+        orbBrush.Center = orbCenter;
+        orbBrush.OriginOffset = new Vector2(-direction * 3.5f, -2f);
+        orbBrush.RadiusX = orbRadiusX;
+        orbBrush.RadiusY = orbRadiusY;
+        orbBrush.Opacity = Math.Clamp(28f * intensity, 17f, 40f) / byte.MaxValue;
+        drawingSession.FillEllipse(orbCenter, orbRadiusX, orbRadiusY, orbBrush);
     }
 
     private void DrawMorphingLens(
@@ -1093,6 +1172,86 @@ public sealed class EdgeWaveRenderer : IDisposable
         return _verticalOpacityMask;
     }
 
+    private CanvasRadialGradientBrush GetAmbientGlowBrush(CanvasControl canvas, Color accent)
+    {
+        EnsureGlowBrushes(canvas, accent);
+        return _ambientGlowBrush!;
+    }
+
+    private CanvasRadialGradientBrush GetOrbGlowBrush(CanvasControl canvas, Color accent)
+    {
+        EnsureGlowBrushes(canvas, accent);
+        return _orbGlowBrush!;
+    }
+
+    private void EnsureGlowBrushes(CanvasControl canvas, Color accent)
+    {
+        var packedAccent = ((uint)accent.R << 16) | ((uint)accent.G << 8) | accent.B;
+        if (_ambientGlowBrush is not null &&
+            _orbGlowBrush is not null &&
+            _glowBrushAccent == packedAccent)
+        {
+            return;
+        }
+
+        DisposeGlowResources();
+        _glowBrushAccent = packedAccent;
+        _ambientGlowBrush = CreateGlowBrush(
+            canvas,
+            accent,
+            innerStrength: 212,
+            shoulderStrength: 54);
+        _orbGlowBrush = CreateGlowBrush(
+            canvas,
+            accent,
+            innerStrength: 198,
+            shoulderStrength: 42);
+    }
+
+    private static CanvasRadialGradientBrush CreateGlowBrush(
+        CanvasControl canvas,
+        Color accent,
+        byte innerStrength,
+        byte shoulderStrength) =>
+        new(
+            canvas,
+            [
+                new CanvasGradientStop
+                {
+                    Position = 0f,
+                    Color = Color.FromArgb(255, accent.R, accent.G, accent.B),
+                },
+                new CanvasGradientStop
+                {
+                    Position = 0.28f,
+                    Color = Color.FromArgb(innerStrength, accent.R, accent.G, accent.B),
+                },
+                new CanvasGradientStop
+                {
+                    Position = 0.68f,
+                    Color = Color.FromArgb(shoulderStrength, accent.R, accent.G, accent.B),
+                },
+                new CanvasGradientStop
+                {
+                    Position = 1f,
+                    Color = Color.FromArgb(0, accent.R, accent.G, accent.B),
+                },
+            ]);
+
+    private float CalculateGlowIntensity(double seconds, EdgeMotionSignal signal)
+    {
+        var tide = 0.92f +
+                   ((float)Math.Sin(seconds * 0.51) * 0.045f) +
+                   ((float)Math.Sin((seconds * 0.27) + 1.14) * 0.028f);
+        if (_isPlaying)
+        {
+            tide += ((float)signal.Energy * 0.18f) +
+                    ((float)signal.LowBand * 0.12f);
+        }
+
+        return Math.Clamp(tide, 0.82f, 1.28f);
+    }
+
     private void DrawContourGeometry(
         CanvasDrawingSession drawingSession,
         CanvasGeometry geometry,
@@ -1114,6 +1273,15 @@ public sealed class EdgeWaveRenderer : IDisposable
             _fineStrandGeometries[index]?.Dispose();
             _fineStrandGeometries[index] = null;
         }
+    }
+
+    private void DisposeGlowResources()
+    {
+        _ambientGlowBrush?.Dispose();
+        _ambientGlowBrush = null;
+        _orbGlowBrush?.Dispose();
+        _orbGlowBrush = null;
+        _glowBrushAccent = uint.MaxValue;
     }
 
     private static int FineStrandGeometryGroup(int strandIndex)

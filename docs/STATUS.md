@@ -19,6 +19,11 @@
 - Mirrored right and left inward-flowing geometry validated at runtime, with
   deterministic 100% and 125% layout/DPI coverage in core tests.
 - Layered fluid traces, glass orb, idle breathing, and restrained playing motion.
+- Memory-only default-output loopback analysis with FFT-derived energy and
+  low/mid/high bands, smooth fallback to the calm idle tide, and bounded recovery
+  after transient capture failures.
+- Diffuse accent glow behind the field and orb, driven gently by the same live
+  signal while preserving a fully transparent collapsed surface.
 - Hover preview and click-to-pin launcher states with an organic acrylic capsule
   bloom around the existing practical content surface.
 - Notification travel, expanded orb, icon layer, ripple, hold, and return are
@@ -43,6 +48,10 @@
   remote-desktop sessions, and display-driver paths before production enablement.
 - Long-session performance profiling of both the Win2D production path and the
   experimental native composition path.
+- Audio-response tuning across different output devices, sample formats, music
+  genres, and mixed system-audio conditions.
+- Automatic migration when Windows changes the default render device without
+  stopping the previous endpoint's active loopback stream.
 
 The prior short native Debug/playing sample used about `24.7%` of one logical core
 and held private memory near `106 MiB`, with no growth across the sample. That is a
@@ -51,8 +60,8 @@ Win2D path or a substitute for the long-session/GPU matrix above.
 
 ## Intentionally deferred
 
-- Real application-loopback audio levels/FFT. The current motion is procedural and
-  labeled as such.
+- Process-specific loopback isolation. The current implementation intentionally
+  analyzes the default system-output mix while compatible media reports playback.
 - Multi-monitor selection and per-monitor profiles. Display abstractions already
   return multiple monitors, while presentation currently chooses the primary.
 - Panel Mode. It will consume the same core events and integration state.

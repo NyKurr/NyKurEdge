@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NyKurEdge.Core\NyKurEdge.Core.csproj" />
+    <PackageReference Include="NAudio.Wasapi" Version="3.0.1" />
   </ItemGroup>
 
   <PropertyGroup>

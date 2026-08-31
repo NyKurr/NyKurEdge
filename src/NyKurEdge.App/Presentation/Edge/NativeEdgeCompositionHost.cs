@@ -105,6 +105,7 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
     private double _expansionProgress;
     private Color _lastAccent;
     private EdgePressureField _lastPressureField;
+    private float _lastGlowIntensity = float.NaN;
     private bool _hasAccent;
     private bool _isShown;
     private bool _pointerInside;
@@ -466,12 +467,15 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
         _pendingGeometries.Clear();
 
         var luminous = frame.PressureField == EdgePressureField.Luminous;
+        var glowIntensity = Math.Clamp(frame.GlowIntensity, 0.68f, 1.42f);
         if (!_hasAccent ||
             !_lastAccent.Equals(frame.Accent) ||
-            _lastPressureField != frame.PressureField)
+            _lastPressureField != frame.PressureField ||
+            Math.Abs(_lastGlowIntensity - glowIntensity) > 0.012f)
         {
             _lastAccent = frame.Accent;
             _lastPressureField = frame.PressureField;
+            _lastGlowIntensity = glowIntensity;
             _hasAccent = true;
             foreach (var gradient in _accentGradients)
             {
@@ -479,14 +483,23 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
             }
             if (OperatingSystem.IsWindowsVersionAtLeast(10, 0, 18362))
             {
-                _ambientGlow?.Update(frame.Accent, luminous ? 1f : 0.68f);
-                _orbBloom?.Update(frame.Accent, luminous ? 1f : 0.76f);
-                _orbAccentGradient?.Update(frame.Accent, 1);
+                _ambientGlow?.Update(
+                    frame.Accent,
+                    glowIntensity * (luminous ? 1f : 0.68f));
+                _orbBloom?.Update(
+                    frame.Accent,
+                    glowIntensity * (luminous ? 1f : 0.76f));
+                _orbAccentGradient?.Update(
+                    frame.Accent,
+                    0.92f + ((glowIntensity - 0.82f) * 0.22f));
             }
             if (_ambientGlowFallbackBrush is not null)
             {
                 _ambientGlowFallbackBrush.Color = Color.FromArgb(
-                    (byte)(luminous ? 3 : 2),
+                    (byte)Math.Clamp(
+                        (int)Math.Round((luminous ? 3 : 2) * glowIntensity),
+                        1,
+                        5),
                     frame.Accent.R,
                     frame.Accent.G,
                     frame.Accent.B);
@@ -494,7 +507,10 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
             if (_orbBloomFallbackBrush is not null)
             {
                 _orbBloomFallbackBrush.Color = Color.FromArgb(
-                    (byte)(luminous ? 7 : 5),
+                    (byte)Math.Clamp(
+                        (int)Math.Round((luminous ? 7 : 5) * glowIntensity),
+                        3,
+                        10),
                     frame.Accent.R,
                     frame.Accent.G,
                     frame.Accent.B);
@@ -525,13 +541,17 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
         var direction = _side == EdgeSide.Right ? -1f : 1f;
         var centerY = _heightDip / 2f;
         var radius = lensHeight * 0.37f;
+        var glowDrift = (float)(
+            (Math.Sin(frame.ElapsedSeconds * 0.53) * 0.64) +
+            (Math.Sin((frame.ElapsedSeconds * 0.31) + 1.73) * 0.36));
+        var glowRadiusScale = 1f + ((glowIntensity - 1f) * 0.09f);
 
         _ambientGlowGeometry.Center = new Vector2(
-            edgeX + (direction * (visibleReach * 0.18f)),
-            centerY);
+            edgeX + (direction * ((visibleReach * 0.18f) + (glowDrift * 1.2f))),
+            centerY + (glowDrift * 1.7f));
         _ambientGlowGeometry.Radius = new Vector2(
-            visibleReach * (2.45f + (energy * 0.24f)),
-            lensHeight * (2.5f + (energy * 0.18f)));
+            visibleReach * (2.45f + (energy * 0.24f)) * glowRadiusScale,
+            lensHeight * (2.5f + (energy * 0.18f)) * glowRadiusScale);
         _orbBloomGeometry.Center = new Vector2(edgeX, centerY);
         _orbBloomGeometry.Radius = new Vector2(radius * 1.9f, radius * 2.15f);
         _orbDepthGeometry.Center = new Vector2(edgeX, centerY);

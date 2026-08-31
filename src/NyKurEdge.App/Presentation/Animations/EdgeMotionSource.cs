@@ -1,3 +1,5 @@
+using NyKurEdge.Core.AudioVisualization;
+
 namespace NyKurEdge.App.Presentation.Animations;
 
 public readonly record struct EdgeMotionSignal(
@@ -66,4 +68,56 @@ public sealed class ProceduralEdgeMotionSource : IEdgeMotionSource
     }
 
     private static double Lerp(double from, double to, double amount) => from + ((to - from) * amount);
+}
+
+/// <summary>
+/// Blends the calm procedural tide with live, memory-only WASAPI spectrum data.
+/// Audio is the dominant signal while fresh packets are available; the source
+/// eases back to the idle tide during capture failure, stale input, or pause.
+/// </summary>
+public sealed class AudioReactiveEdgeMotionSource(
+    IAudioVisualizationService audioVisualization,
+    IEdgeMotionSource? idleSource = null) : IEdgeMotionSource
+{
+    private static readonly TimeSpan FreshAudioWindow = TimeSpan.FromMilliseconds(320);
+    private readonly IEdgeMotionSource _idleSource = idleSource ?? new ProceduralEdgeMotionSource();
+    private EdgeMotionSignal _presented;
+    private double _lastSampleSeconds;
+    private bool _hasPresentedSignal;
+
+    public EdgeMotionSignal Sample(double elapsedSeconds, bool isPlaying)
+    {
+        var idle = _idleSource.Sample(elapsedSeconds, isPlaying: false).Normalize();
+        var spectrum = audioVisualization.Current;
+        var hasLiveAudio = isPlaying && spectrum.IsFresh(FreshAudioWindow);
+        var target = hasLiveAudio
+            ? new EdgeMotionSignal(
+                0.08 + (spectrum.Energy * 0.92),
+                0.05 + (spectrum.LowBand * 0.95),
+                0.04 + (spectrum.MidBand * 0.96),
+                0.02 + (spectrum.HighBand * 0.98)).Normalize()
+            : idle;
+
+        if (!_hasPresentedSignal)
+        {
+            _presented = target;
+            _lastSampleSeconds = elapsedSeconds;
+            _hasPresentedSignal = true;
+            return _presented;
+        }
+
+        var deltaSeconds = Math.Clamp(elapsedSeconds - _lastSampleSeconds, 0, 0.12);
+        _lastSampleSeconds = elapsedSeconds;
+        var responseSeconds = hasLiveAudio ? 0.085 : 0.62;
+        var amount = 1 - Math.Exp(-deltaSeconds / responseSeconds);
+        _presented = new EdgeMotionSignal(
+            Lerp(_presented.Energy, target.Energy, amount),
+            Lerp(_presented.LowBand, target.LowBand, amount),
+            Lerp(_presented.MidBand, target.MidBand, amount),
+            Lerp(_presented.HighBand, target.HighBand, amount)).Normalize();
+        return _presented;
+    }
+
+    private static double Lerp(double from, double to, double amount) =>
+        from + ((to - from) * amount);
 }
