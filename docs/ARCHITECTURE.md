@@ -66,12 +66,17 @@ sources during shutdown.
 - Settings interaction temporarily permits activation so keyboard/color controls
   remain usable.
 - Bounds are derived from the selected display's work area and effective DPI.
-- `EdgeWindowLayout` sizes the collapsed field independently from the contextual
-  surface (`112 × 720` DIPs and `432 × 318` DIPs respectively). Taskbar-adjusted
-  work-area bounds and effective DPI remain the source of physical placement.
+- `EdgeWindowLayout` keeps the Edge HWND at the taskbar-adjusted primary work-area
+  height in both states. Its collapsed width is `152` DIPs; the compact contextual
+  bloom remains approximately `432 × 318` DIPs and is centered vertically inside
+  that full-height surface. Effective DPI remains the source of physical placement.
 - The production collapsed phenomenon is drawn by the transparent Win2D surface.
-  The WinUI HWND region follows the visible fluid field and orb instead of exposing
-  an interactive full-height rectangle.
+  The full-height visual HWND remains visually transparent and input-transparent
+  while collapsed. A separate no-redirection native launcher HWND owns only the
+  small edge-embedded orb region, so unrelated desktop applications keep their
+  pointer and wheel input. As expansion begins, the WinUI surface regains input
+  and its DPI-aware `WM_NCHITTEST` geometry narrows interaction to the organic
+  panel silhouette.
 - `NativeEdgeCompositionHost` contains an experimental separate
   `WS_EX_NOREDIRECTIONBITMAP` no-activation tool window. It is enabled only when
   `NYKUR_EDGE_NATIVE_COMPOSITION=1`; this prevents a native target that accepts
@@ -95,17 +100,21 @@ no high-rate layout timer runs while idle.
 ## Edge rendering
 
 `EdgeWaveRenderer` separates sparse signal simulation from continuous visual
-presentation. Fifteen damped control nodes drift toward low-frequency procedural
+presentation. Seventeen damped control nodes drift toward low-frequency procedural
 targets, and a bounded spring integrator interpolates them during compositor render
-ticks. Seventy-three sampled points form four separated structural contours plus
-seventeen harmonized fine strands, with a broad center envelope and long, naturally
-dissipating upper/lower tails. Notification travel, pressure displacement, playing
-energy, and expansion progress all enter the same field model instead of being
-unrelated overlay effects.
+ticks. Presentation uses an accumulated 60 Hz deadline in every state so a 60 Hz
+compositor cannot alias idle motion down to 30 Hz; sparse target sampling still
+keeps simulation work bounded. Seventy-three sampled points form four separated
+structural contours plus thirty-two harmonized fine strands. Three separated moving vertical
+energy/pressure zones travel through a low-amplitude full-height floor, allowing
+activity to migrate above and below the fixed orb instead of repeatedly peaking at
+one center envelope. Notification travel, pressure displacement, playing energy,
+and expansion progress all enter the same field model instead of being unrelated
+overlay effects.
 
 `EdgeWaveRenderer` draws those points on the production Win2D surface as faint
-pressure fields, accent filament families, a neutral edge anchor, atmospheric
-bloom, and a layered optical half-lens. The experimental
+pressure fields, accent filament families, a neutral edge anchor, brighter
+distributed transparent bloom, and a layered optical half-lens. The experimental
 `NativeEdgeCompositionHost` consumes the same bounded frame model and converts it
 to system-composition shapes, so it can be compatibility-tested without forking the
 simulation or presentation state. When explicitly active, the Win2D mirror is not
@@ -121,11 +130,13 @@ pinning temporarily permits window activation, while passive hover retains the
 normal no-activation behavior.
 
 `IEdgeMotionSource` supplies normalized energy/band values.
-`AudioReactiveEdgeMotionSource` blends fresh memory-only WASAPI spectrum snapshots
-into the renderer and eases back to `ProceduralEdgeMotionSource` for idle, pause,
-stale input, or capture unavailability. Notification timing remains coordinated by
-`EdgeBubbleController`, while its pulse, orb displacement, and ripple are rendered
-by the same field path.
+`AudioReactiveEdgeMotionSource` applies a noise-gated concave response curve and
+asymmetric attack/release smoothing to fresh memory-only WASAPI spectrum snapshots,
+then eases back to `ProceduralEdgeMotionSource` for idle, pause, stale input, or
+capture unavailability. This makes quiet and medium program material visibly more
+responsive without turning endpoint noise into motion. Notification timing remains
+coordinated by `EdgeBubbleController`, while its pulse, orb displacement, and ripple
+are rendered by the same field path.
 
 ## Media
 

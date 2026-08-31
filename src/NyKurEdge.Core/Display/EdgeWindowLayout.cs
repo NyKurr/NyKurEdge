@@ -6,9 +6,13 @@ public readonly record struct EdgeWindowBounds(int X, int Y, int Width, int Heig
 
 public static class EdgeWindowLayout
 {
-    public const double CollapsedWidthDip = 112;
-    public const double CollapsedHeightDip = 720;
+    // The host is transparent and click-through outside the launcher. The extra
+    // horizontal allowance gives the broadest fluid stroke and glow a soft
+    // falloff instead of flattening against the inner HWND boundary.
+    public const double CollapsedWidthDip = 152;
     public const double ExpandedWidthDip = 432;
+    // The visible expanded bloom remains compact even though the transparent
+    // host window now spans the complete monitor work area.
     public const double ExpandedHeightDip = 318;
 
     public static EdgeWindowBounds Calculate(
@@ -21,18 +25,14 @@ public static class EdgeWindowLayout
         var progress = Math.Clamp(expansionProgress, 0, 1);
 
         var collapsedWidth = ToPixels(CollapsedWidthDip, scale, workArea.Width);
-        var collapsedHeight = ToPixels(CollapsedHeightDip, scale, workArea.Height);
         var expandedWidth = ToPixels(ExpandedWidthDip, scale, workArea.Width);
-        var expandedHeight = ToPixels(ExpandedHeightDip, scale, workArea.Height);
 
         var width = Interpolate(collapsedWidth, expandedWidth, progress);
-        var height = Interpolate(collapsedHeight, expandedHeight, progress);
         var x = side == EdgeSide.Right
             ? workArea.X + workArea.Width - width
             : workArea.X;
-        var y = workArea.Y + ((workArea.Height - height) / 2);
 
-        return new EdgeWindowBounds(x, y, width, height);
+        return new EdgeWindowBounds(x, workArea.Y, width, workArea.Height);
     }
 
     private static int ToPixels(double dips, double scale, int availablePixels) =>

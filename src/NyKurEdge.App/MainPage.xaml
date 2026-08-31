@@ -16,11 +16,11 @@
         PointerExited="OnPointerExited">
         <Grid
             x:Name="LayoutGrid"
-            Width="112"
+            Width="152"
             HorizontalAlignment="Left">
             <Grid
                 x:Name="EdgeSurface"
-                Width="112"
+                Width="152"
                 HorizontalAlignment="Right"
                 Background="Transparent">
                 <canvas:CanvasControl
@@ -31,9 +31,11 @@
 
                 <Grid
                     x:Name="PanelContent"
+                    Height="270"
                     Margin="26,24,30,24"
                     IsHitTestVisible="False"
                     Opacity="0"
+                    VerticalAlignment="Center"
                     Visibility="Collapsed">
                     <Grid.RenderTransform>
                         <CompositeTransform

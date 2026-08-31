@@ -2,8 +2,9 @@
 
 NyKur Edge is a native Windows desktop companion that keeps media, notifications,
 and ambient glances attached to the edge of the primary display. Its normal idle
-surface is a genuinely transparent, vertically extended fluid field with a
-half-embedded glass orb; the contextual glass bloom appears only when requested.
+surface is a genuinely transparent, full-work-area-height fluid field with a
+half-embedded glass orb; the compact contextual glass bloom appears only when
+requested.
 
 This repository contains the initial `0.1.0` vertical slice. It is a real packaged
 WinUI 3 application, not a browser shell or throwaway prototype.
@@ -12,12 +13,15 @@ WinUI 3 application, not a browser shell or throwaway prototype.
 
 - Borderless, topmost Edge window that stays out of Alt+Tab and does not activate
   merely because it appears.
-- DPI-aware left/right anchoring to the primary monitor work area.
+- DPI-aware left/right anchoring to the primary monitor work area. The collapsed
+  render surface is 152 DIPs wide and spans the available work-area height, while
+  pointer input passes through everywhere except the orb and active organic bloom.
 - A transparent Win2D idle surface for the wave and orb, with the desktop visible
   behind the effect and no intentional XAML/window-colored slab.
-- Seventeen layered filaments over separated pressure, contour, interference,
-  and edge-anchor traces, with restrained radial bloom and a deliberate optical
-  half-orb whose center sits on the display boundary.
+- Thirty-two layered filaments over separated pressure, contour, interference,
+  and edge-anchor traces. Three separated traveling vertical pressure zones
+  distribute activity across the full height instead of fixing it at the center;
+  the optical half-orb remains anchored to the display boundary.
 - Cubic-eased hover preview plus click-to-pin launcher behavior; the glass shell
   grows from the orb and keeps a collapse grace period.
 - Windows global media-session discovery, live metadata, artwork, timeline, and
@@ -26,10 +30,12 @@ WinUI 3 application, not a browser shell or throwaway prototype.
   chroma/lightness normalization.
 - Persisted manual accent mode with a native WinUI color picker.
 - Sparse procedural idle targets with continuously spring-interpolated rendering,
-  reused sample buffers, bounded transient geometry lifetime, and live in-memory
-  WASAPI loopback energy plus low/mid/high-band input while media is playing.
-- A restrained two-stage atmospheric glow that breathes with the idle tide and
-  follows real output energy without adding an opaque backdrop.
+  reused sample buffers, bounded transient geometry lifetime, and more responsive
+  live in-memory WASAPI loopback energy plus low/mid/high-band input while media
+  is playing.
+- A brighter distributed atmospheric glow that travels with the pressure field,
+  breathes with the idle tide, and follows real output energy without adding an
+  opaque backdrop.
 - Generic glance coordinator and scheduled/previewable clock glance.
 - Supported `UserNotificationListener` integration, source filtering, privacy
   levels, permission state, notification preview state, and a bubble/icon/ripple

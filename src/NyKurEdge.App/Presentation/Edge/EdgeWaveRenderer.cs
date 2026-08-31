@@ -50,9 +50,12 @@ public sealed class EdgeWaveRenderer : IDisposable
     // the fallback path no longer needs thousands of tiny line segments.
     private const int RenderPointCount = 73;
     internal const int FineStrandCount = 32;
-    private const int FineStrandGeometryGroupCount = 6;
-    private const double IdlePresentationRate = 36;
-    private const double ActivePresentationRate = 60;
+    private const int FineStrandGeometryGroupCount = 4;
+    // Present at a true 60 Hz in every state. Sparse simulation targets still
+    // keep idle work bounded; visible interpolation must not alias a 60 Hz
+    // compositor down to 30 Hz.
+    private const double PresentationRate = 60;
+    private const double ExpansionFieldTransitionEnd = 0.42;
 
     private readonly CanvasControl _canvas;
     private readonly EdgeWindowController _windowController;
@@ -83,7 +86,7 @@ public sealed class EdgeWaveRenderer : IDisposable
     private CanvasGeometry? _cachedLensOutline;
     private LensCacheKey _lensCacheKey;
     private double _lastFrameSeconds;
-    private double _lastRenderRequestSeconds = double.NegativeInfinity;
+    private double _nextRenderRequestSeconds = double.NegativeInfinity;
     private double _nextTargetSeconds;
     private double _notificationStartedAt = double.NegativeInfinity;
     private double _notificationTimingScale = 1;
@@ -145,7 +148,7 @@ public sealed class EdgeWaveRenderer : IDisposable
 
         _isRunning = true;
         _lastFrameSeconds = _clock.Elapsed.TotalSeconds;
-        _lastRenderRequestSeconds = double.NegativeInfinity;
+        _nextRenderRequestSeconds = double.NegativeInfinity;
         CompositionTarget.Rendering += OnRendering;
         _canvas.Invalidate();
     }
@@ -292,19 +295,25 @@ public sealed class EdgeWaveRenderer : IDisposable
         }
 
         var seconds = _clock.Elapsed.TotalSeconds;
-        var notificationAge = (seconds - _notificationStartedAt) / _notificationTimingScale;
-        var isVisuallyActive = _isPlaying ||
-                               _expansionProgress > 0.001 ||
-                               notificationAge is >= 0 and <= 2.24;
-        var presentationRate = isVisuallyActive
-            ? ActivePresentationRate
-            : IdlePresentationRate;
-        if (seconds - _lastRenderRequestSeconds < 1d / presentationRate)
+        var presentationInterval = 1d / PresentationRate;
+        if (!double.IsFinite(_nextRenderRequestSeconds))
+        {
+            _nextRenderRequestSeconds = seconds;
+        }
+
+        // Keep an accumulated deadline instead of resetting it to the current
+        // compositor tick. That preserves an average 60 Hz cadence on 120/144/
+        // 165 Hz displays rather than aliasing to an accidental lower divisor.
+        if (seconds + 0.00075 < _nextRenderRequestSeconds)
         {
             return;
         }
 
-        _lastRenderRequestSeconds = seconds;
+        _nextRenderRequestSeconds += presentationInterval;
+        if (_nextRenderRequestSeconds < seconds)
+        {
+            _nextRenderRequestSeconds = seconds + presentationInterval;
+        }
         _canvas.Invalidate();
     }
 
@@ -338,11 +347,12 @@ public sealed class EdgeWaveRenderer : IDisposable
         _lastFrameSeconds = seconds;
         var signal = _motionSource.Sample(seconds, _isPlaying).Normalize();
         var glowIntensity = CalculateGlowIntensity(seconds, signal);
+        var flowCenters = GetFlowCenters(seconds);
 
         if (seconds >= _nextTargetSeconds)
         {
-            UpdateTargets(seconds, signal);
-            _nextTargetSeconds = seconds + (_isPlaying ? 0.045 : 0.085);
+            UpdateTargets(seconds, signal, flowCenters);
+            _nextTargetSeconds = seconds + (_isPlaying ? 0.035 : 0.065);
             if (!_hasSimulationState)
             {
                 SnapNodesToTargets();
@@ -357,7 +367,7 @@ public sealed class EdgeWaveRenderer : IDisposable
             deltaSeconds -= step;
         }
 
-        BuildContours(width, height, seconds, signal);
+        BuildContours(width, height, seconds, signal, flowCenters);
         var notificationAge = (seconds - _notificationStartedAt) / _notificationTimingScale;
         var notificationProgress = NotificationLensProgress(notificationAge);
         PublishNotificationProgress(
@@ -372,7 +382,8 @@ public sealed class EdgeWaveRenderer : IDisposable
                 height,
                 seconds,
                 signal,
-                glowIntensity);
+                glowIntensity,
+                flowCenters);
         }
         _windowController.RenderCollapsedEdge(new EdgeFluidFrame(
             _primaryPoints,
@@ -390,7 +401,10 @@ public sealed class EdgeWaveRenderer : IDisposable
             seconds));
     }
 
-    private void UpdateTargets(double seconds, EdgeMotionSignal signal)
+    private void UpdateTargets(
+        double seconds,
+        EdgeMotionSignal signal,
+        FlowCenters flowCenters)
     {
         var characterScale = _character switch
         {
@@ -398,37 +412,45 @@ public sealed class EdgeWaveRenderer : IDisposable
             EdgeFluidCharacter.Expressive => 1.24,
             _ => 1,
         };
-        var activity = (0.26 + (signal.Energy * 1.34)) * _intensity * characterScale;
+        var activity = Math.Min(
+            2.35,
+            (0.62 + (signal.Energy * 1.92)) * _intensity * characterScale);
 
         for (var index = 0; index < ControlPointCount; index++)
         {
             var normalized = index / (double)(ControlPointCount - 1);
-            var presence = VerticalPresence(normalized);
+            var flow = SampleFlowField(normalized, seconds, flowCenters, signal);
 
             // Every target samples a spatially coherent field. The springs still
             // interpolate sparse simulation updates, but adjacent nodes now
             // belong to one continuous fluid body rather than unrelated bends.
-            var primaryBody = SignedNoise((seconds * 0.082) + (normalized * 1.34), 17);
-            var primaryFold = SignedNoise((-seconds * 0.047) + (normalized * 3.12) + 0.71, 61);
-            var primaryDetail = SignedNoise((seconds * 0.137) + (normalized * 5.26) + 1.63, 109);
+            var primaryBody = SignedNoise((seconds * 0.145) + (normalized * 1.34), 17);
+            var primaryFold = SignedNoise((-seconds * 0.083) + (normalized * 3.12) + 0.71, 61);
+            var primaryDetail = SignedNoise((seconds * 0.235) + (normalized * 5.26) + 1.63, 109);
 
-            var secondaryBody = SignedNoise((-seconds * 0.069) + (normalized * 1.57) + 1.11, 149);
-            var secondaryFold = SignedNoise((seconds * 0.041) + (normalized * 3.71) + 0.26, 211);
-            var secondaryDetail = SignedNoise((-seconds * 0.121) + (normalized * 5.83) + 2.07, 277);
+            var secondaryBody = SignedNoise((-seconds * 0.121) + (normalized * 1.57) + 1.11, 149);
+            var secondaryFold = SignedNoise((seconds * 0.074) + (normalized * 3.71) + 0.26, 211);
+            var secondaryDetail = SignedNoise((-seconds * 0.207) + (normalized * 5.83) + 2.07, 277);
 
-            var tertiaryBody = SignedNoise((seconds * 0.054) + (normalized * 1.18) + 2.19, 337);
-            var tertiaryFold = SignedNoise((-seconds * 0.036) + (normalized * 2.84) + 1.37, 401);
-            var tertiaryDetail = SignedNoise((seconds * 0.098) + (normalized * 4.67) + 0.43, 463);
+            var tertiaryBody = SignedNoise((seconds * 0.098) + (normalized * 1.18) + 2.19, 337);
+            var tertiaryFold = SignedNoise((-seconds * 0.064) + (normalized * 2.84) + 1.37, 401);
+            var tertiaryDetail = SignedNoise((seconds * 0.176) + (normalized * 4.67) + 0.43, 463);
+            var rhythmicFold = _isPlaying
+                ? (Math.Sin((seconds * 2.35) + (normalized * 10.8)) * signal.MidBand * 0.20) +
+                  (Math.Sin((seconds * 3.70) - (normalized * 7.4)) * signal.HighBand * 0.09)
+                : 0;
 
             _primaryNodes[index].Target =
-                ((primaryBody * 0.61) + (primaryFold * 0.28) + (primaryDetail * 0.11)) *
-                activity * presence;
+                ((primaryBody * 0.61) + (primaryFold * 0.28) + (primaryDetail * 0.11) + rhythmicFold) *
+                activity * flow.Presence;
             _secondaryNodes[index].Target =
-                ((secondaryBody * 0.63) + (secondaryFold * 0.27) + (secondaryDetail * 0.10)) *
-                activity * presence * 0.88;
+                ((secondaryBody * 0.63) + (secondaryFold * 0.27) + (secondaryDetail * 0.10) -
+                 (rhythmicFold * 0.56)) *
+                activity * flow.Presence * 0.92;
             _tertiaryNodes[index].Target =
-                ((tertiaryBody * 0.68) + (tertiaryFold * 0.23) + (tertiaryDetail * 0.09)) *
-                activity * presence * 0.72;
+                ((tertiaryBody * 0.68) + (tertiaryFold * 0.23) + (tertiaryDetail * 0.09) +
+                 (rhythmicFold * 0.34)) *
+                activity * flow.Presence * 0.78;
         }
     }
 
@@ -447,8 +469,8 @@ public sealed class EdgeWaveRenderer : IDisposable
 
     private void IntegrateNodes(double deltaSeconds)
     {
-        var stiffness = _isPlaying ? 18.5 : 9.4;
-        var damping = _isPlaying ? 8.6 : 6.15;
+        var stiffness = _isPlaying ? 22.5 : 11.8;
+        var damping = _isPlaying ? 9.0 : 6.35;
         for (var index = 0; index < ControlPointCount; index++)
         {
             Integrate(ref _primaryNodes[index], deltaSeconds, stiffness, damping);
@@ -457,11 +479,18 @@ public sealed class EdgeWaveRenderer : IDisposable
         }
     }
 
-    private void BuildContours(float width, float height, double seconds, EdgeMotionSignal signal)
+    private void BuildContours(
+        float width,
+        float height,
+        double seconds,
+        EdgeMotionSignal signal,
+        FlowCenters flowCenters)
     {
         var edgeX = _side == EdgeSide.Right ? width : 0f;
         var direction = _side == EdgeSide.Right ? -1f : 1f;
-        var playingReach = _isPlaying ? 4.8f + ((float)signal.LowBand * 7.8f) : 0f;
+        var playingReach = _isPlaying
+            ? 6f + (18f * MathF.Pow((float)signal.LowBand, 0.72f)) + ((float)signal.Energy * 4f)
+            : 0f;
         var expression = _character == EdgeFluidCharacter.Expressive ? 4.8f : 0f;
         var expansionReach = (float)(
             SmoothStep(_expansionProgress) * Math.Min(92, width * 0.23f));
@@ -472,19 +501,24 @@ public sealed class EdgeWaveRenderer : IDisposable
         _orbAttachmentRadius = activeOrbRadius;
         var orbRadiusNormalized = activeOrbRadius / Math.Max(1f, height);
         var connectorLength = Math.Clamp(72f / Math.Max(1f, height), 0.072, 0.125);
+        var fieldMorph = SmootherStep(Math.Clamp(
+            _expansionProgress / ExpansionFieldTransitionEnd,
+            0,
+            1));
 
         for (var index = 0; index < RenderPointCount; index++)
         {
             var normalized = index / (double)(RenderPointCount - 1);
-            var presence = VerticalPresence(normalized);
-            var centerField = Gaussian(normalized, 0.5, 2.05);
-            var centerCore = Gaussian(normalized, 0.5, 5.8);
+            var flow = SampleFlowField(normalized, seconds, flowCenters, signal);
+            var expansionEnvelope = Lerp(
+                1,
+                0.08 + (Gaussian(normalized, 0.5, 2.05) * 0.92),
+                fieldMorph);
+            var presence = flow.EdgeFade * expansionEnvelope;
+            var orbChannel = Gaussian(normalized, 0.5, 5.8);
             var shoulders =
                 Gaussian(normalized, 0.455, 21) +
                 Gaussian(normalized, 0.545, 21);
-            var distantFlow =
-                Gaussian(normalized, 0.305, 7.4) +
-                Gaussian(normalized, 0.695, 7.4);
             var centerDistance = Math.Abs(normalized - 0.5);
             var distanceFromOrb = Math.Max(0, centerDistance - orbRadiusNormalized);
             var attachmentProgress = Math.Clamp(distanceFromOrb / connectorLength, 0, 1);
@@ -494,52 +528,46 @@ public sealed class EdgeWaveRenderer : IDisposable
                 orbRadiusNormalized + (connectorLength * 0.78),
                 10.8);
             var baseReach = presence *
-                            (2.1 +
-                             ((14.2 + (playingReach * 0.52)) * centerField) +
-                             ((19.4 + (playingReach * 0.76) + expression) * centerCore) +
-                             (6.5 * shoulders) +
-                             (3.6 * distantFlow) +
-                             (7.2 * attachmentShoulder));
+                            (5.2 +
+                             ((17.4 + (playingReach * 0.68)) * flow.Primary) +
+                             ((16.8 + (playingReach * 0.60) + (expression * 0.48)) * flow.Secondary) +
+                             ((16.2 + (playingReach * 0.54)) * flow.Tertiary) +
+                             ((4.2 + (expression * 0.34)) * orbChannel) +
+                             (3.2 * shoulders) +
+                             (4.6 * attachmentShoulder));
             var primaryDrift = SampleNode(_primaryNodes, normalized) *
-                               (3.7 + (signal.MidBand * 3.8));
+                               (4.5 + (signal.MidBand * 8.0) + (signal.Energy * 3.0));
             var secondaryDrift = SampleNode(_secondaryNodes, normalized) *
-                                 (3.1 + (signal.HighBand * 3.2));
+                                 (3.8 + (signal.HighBand * 7.0));
             var tertiaryDrift = SampleNode(_tertiaryNodes, normalized) *
-                                (2.4 + (signal.MidBand * 2.5));
+                                (3.0 + (signal.MidBand * 6.0));
             var fieldDrift =
-                ((SignedNoise((seconds * 0.046) + (normalized * 1.83), 521) * 0.68) +
-                 (SignedNoise((-seconds * 0.031) + (normalized * 3.46) + 1.7, 577) * 0.32)) *
-                presence * (1.4 + (centerField * 1.35));
+                ((SignedNoise((seconds * 0.082) + (normalized * 1.83), 521) * 0.68) +
+                 (SignedNoise((-seconds * 0.057) + (normalized * 3.46) + 1.7, 577) * 0.32)) *
+                presence * (2.4 + (flow.Presence * 3.4));
             var notification = NotificationDisplacement(
                 normalized,
                 notificationAge,
                 _notificationTravelDirection);
             var expansion = expansionReach * Gaussian(normalized, 0.5, 2.12);
             var y = (float)(normalized * height);
+            var visualGate = attachmentGate * expansionEnvelope;
 
             // Four structural depths form the quiet body of the field. They do
             // not track each other exactly, so the silhouette reads as pressure
             // and refraction instead of parallel wire.
-            var primaryReach = Math.Clamp(attachmentGate * (
+            var primaryReach = LimitReach(visualGate * (
                 (baseReach * 1.18) + (primaryDrift * 0.78) + fieldDrift +
-                notification + expansion),
-                0.15,
-                width - 2);
-            var secondaryReach = Math.Clamp(attachmentGate * (
+                notification + expansion), width, 18f, 0.15);
+            var secondaryReach = LimitReach(visualGate * (
                 (baseReach * 0.78) + (secondaryDrift * 0.82) - (fieldDrift * 0.24) +
-                (notification * 0.66) + (expansion * 0.88)),
-                0.1,
-                width - 2);
-            var interferenceReach = Math.Clamp(attachmentGate * (
+                (notification * 0.66) + (expansion * 0.88)), width, 18f, 0.1);
+            var interferenceReach = LimitReach(visualGate * (
                 (baseReach * 1.52) - (primaryDrift * 0.22) + (secondaryDrift * 0.42) +
-                (fieldDrift * 0.35) + (notification * 0.84) + expansion),
-                0.1,
-                width - 2);
-            var filamentReach = Math.Clamp(attachmentGate * (
+                (fieldDrift * 0.35) + (notification * 0.84) + expansion), width, 18f, 0.1);
+            var filamentReach = LimitReach(visualGate * (
                 (baseReach * 0.28) + (tertiaryDrift * 0.38) + (secondaryDrift * 0.12) +
-                (notification * 0.28) + (expansion * 0.72)),
-                0.08,
-                width - 2);
+                (notification * 0.28) + (expansion * 0.72)), width, 18f, 0.08);
 
             _primaryPoints[index] = new Vector2(edgeX + (direction * (float)primaryReach), y);
             _secondaryPoints[index] = new Vector2(edgeX + (direction * (float)secondaryReach), y);
@@ -552,12 +580,12 @@ public sealed class EdgeWaveRenderer : IDisposable
                 var laneWeight = 4 * lane * (1 - lane);
                 var family = strandIndex % 4;
                 var familyFlow = SignedNoise(
-                    (seconds * (0.032 + (family * 0.003))) +
+                    (seconds * (0.070 + (family * 0.006))) +
                     (normalized * (1.32 + (family * 0.18))) +
                     (family * 0.71),
                     613 + (family * 97));
                 var secondaryFlow = SignedNoise(
-                    (-seconds * (0.024 + (lane * 0.008))) +
+                    (-seconds * (0.052 + (lane * 0.014))) +
                     (normalized * (1.58 + (lane * 0.32))) +
                     (lane * 3.7),
                     997);
@@ -576,24 +604,22 @@ public sealed class EdgeWaveRenderer : IDisposable
                     (fieldDrift * 0.48) + (notification * 0.88) + expansion;
                 var fieldFold =
                     ((familyFlow * 0.64) + (secondaryFlow * 0.36)) *
-                    presence * (0.24 + (centerField * 1.36)) *
+                    presence * (0.36 + (flow.Presence * 1.18)) *
                     (0.38 + (laneWeight * 0.62)) * attachmentGate;
                 var shoulderPressure = attachmentShoulder *
                                        (1.4 + (laneWeight * 5.8) + (signal.Energy * 1.2));
-                var strandReach = Math.Clamp(attachmentGate * (
+                var strandReach = LimitReach(visualGate * (
                     Lerp(innerReach, outerReach, laneBlend) +
                     (drift * (0.26 + (laneWeight * 0.26))) +
                     fieldFold +
                     shoulderPressure +
-                    (notification * laneWeight * 0.16)),
-                    0.08,
-                    width - 2);
+                    (notification * laneWeight * 0.16)), width, 18f, 0.08);
                 var microLift = SignedNoise(
-                    (seconds * 0.041) +
+                    (seconds * 0.094) +
                     (normalized * 2.42) +
                     (lane * 2.9),
                     1481 + (family * 31)) * presence * attachmentGate *
-                    (0.10 + (signal.HighBand * 0.18));
+                    (0.42 + (signal.HighBand * 1.85));
                 var strandY = Math.Clamp(y + (float)microLift, 0, height);
                 _fineStrandPoints[strandIndex][index] = new Vector2(
                     edgeX + (direction * (float)strandReach),
@@ -609,21 +635,27 @@ public sealed class EdgeWaveRenderer : IDisposable
         float height,
         double seconds,
         EdgeMotionSignal signal,
-        float glowIntensity)
+        float glowIntensity,
+        FlowCenters flowCenters)
     {
         var accent = _accentBrush.Color;
         var energy = (float)signal.Energy;
         var fieldScale = _pressureField == EdgePressureField.Airy ? 0.86f : 1.12f;
 
-        DrawAtmosphericGlow(
-            drawingSession,
-            canvas,
-            width,
-            height,
-            seconds,
-            signal,
-            accent,
-            glowIntensity * fieldScale);
+        var opacityMask = GetVerticalOpacityMask(canvas, height);
+        using (drawingSession.CreateLayer(opacityMask))
+        {
+            DrawAtmosphericGlow(
+                drawingSession,
+                canvas,
+                width,
+                height,
+                seconds,
+                signal,
+                accent,
+                glowIntensity * fieldScale,
+                flowCenters);
+        }
 
         // Convert each moving contour into a smooth cubic path once per frame,
         // then reuse it for every optical depth. The former segment renderer
@@ -640,7 +672,6 @@ public sealed class EdgeWaveRenderer : IDisposable
                 _fineStrandGeometries[group] = CreateFineStrandGeometry(canvas, group);
             }
 
-            var opacityMask = GetVerticalOpacityMask(canvas, height);
             using (drawingSession.CreateLayer(opacityMask))
             {
                 // Broad, almost subliminal strokes form translucent ribbon
@@ -670,7 +701,9 @@ public sealed class EdgeWaveRenderer : IDisposable
                 for (var group = 0; group < FineStrandGeometryGroupCount; group++)
                 {
                     var isOpticalHighlight = group == FineStrandGeometryGroupCount - 1;
-                    var centerEmphasis = isOpticalHighlight ? 0.74f : group / 4f;
+                    var centerEmphasis = isOpticalHighlight
+                        ? 0.74f
+                        : group / (float)(FineStrandGeometryGroupCount - 2);
                     var strandColor = isOpticalHighlight
                         ? Color.FromArgb(255, 244, 248, 252)
                         : accent;
@@ -729,7 +762,8 @@ public sealed class EdgeWaveRenderer : IDisposable
         double seconds,
         EdgeMotionSignal signal,
         Color accent,
-        float intensity)
+        float intensity,
+        FlowCenters centers)
     {
         var direction = _side == EdgeSide.Right ? -1f : 1f;
         var edgeX = _side == EdgeSide.Right ? width : 0f;
@@ -739,30 +773,69 @@ public sealed class EdgeWaveRenderer : IDisposable
             (Math.Sin((seconds * 0.31) + 1.73) * 0.36));
         var slowerDrift = (float)Math.Sin((seconds * 0.19) + 0.82);
         var bassLift = _isPlaying ? (float)signal.LowBand : 0f;
-        var expansionFade = (float)(1 - (SmoothStep(_expansionProgress) * 0.62));
-        intensity = Math.Clamp(intensity * expansionFade, 0.68f, 1.42f);
+        var fieldVisibility = (float)(1 - SmootherStep(Math.Clamp(
+            _expansionProgress / ExpansionFieldTransitionEnd,
+            0,
+            1)));
+        intensity = Math.Clamp(intensity, 0.84f, 1.84f);
 
-        // The broad field originates almost behind the physical monitor edge.
-        // Only its inward falloff is visible, matching the reference lighting
-        // without ever introducing a rectangular or circular UI backdrop.
-        var broadCenter = new Vector2(
+        // Two broad packets share the renderer's moving vertical field. Their
+        // centers can traverse the full work area while the radial falloff keeps
+        // the desktop visible and avoids any rectangular backing surface.
+        var primaryCenter = new Vector2(
             edgeX + (direction * (10f + (slowDrift * 1.4f))),
-            centerY + (slowerDrift * 2.1f));
+            (float)(height * centers.Primary));
+        var secondaryCenter = new Vector2(
+            edgeX + (direction * (8f - (slowDrift * 1.1f))),
+            (float)(height * centers.Secondary));
+        var tertiaryCenter = new Vector2(
+            edgeX + (direction * (9f + (slowDrift * 0.7f))),
+            (float)(height * centers.Tertiary));
         var broadRadiusX = Math.Min(
-            Math.Max(78f, width * 0.86f),
-            108f) * (1f + (slowDrift * 0.025f) + (bassLift * 0.045f));
-        var broadRadiusY = Math.Min(
-            Math.Max(132f, height * 0.21f),
-            184f) * (1f - (slowDrift * 0.018f) + (bassLift * 0.025f));
+            Math.Max(112f, width * 0.82f),
+            142f) * (1f + (slowDrift * 0.025f) + (bassLift * 0.072f));
+        var broadRadiusY = Math.Clamp(
+            height * (0.16f + (bassLift * 0.036f)),
+            148f,
+            330f) * (1f - (slowDrift * 0.018f));
         var broadBrush = GetAmbientGlowBrush(canvas, accent);
-        broadBrush.Center = broadCenter;
+        broadBrush.Center = primaryCenter;
         broadBrush.OriginOffset = new Vector2(-direction * 9f, -4f + (slowDrift * 1.2f));
         broadBrush.RadiusX = broadRadiusX;
         broadBrush.RadiusY = broadRadiusY;
-        broadBrush.Opacity = Math.Clamp(16f * intensity, 10f, 24f) / byte.MaxValue;
-        drawingSession.FillEllipse(broadCenter, broadRadiusX, broadRadiusY, broadBrush);
+        broadBrush.Opacity = fieldVisibility *
+                             (Math.Clamp(64f * intensity, 46f, 108f) / byte.MaxValue);
+        drawingSession.FillEllipse(primaryCenter, broadRadiusX, broadRadiusY, broadBrush);
 
-        var orbCenter = new Vector2(edgeX, centerY + (slowDrift * 0.55f));
+        var secondaryRadiusX = broadRadiusX * 0.82f;
+        var secondaryRadiusY = broadRadiusY * 0.72f;
+        broadBrush.Center = secondaryCenter;
+        broadBrush.OriginOffset = new Vector2(-direction * 6f, 3f - (slowDrift * 0.9f));
+        broadBrush.RadiusX = secondaryRadiusX;
+        broadBrush.RadiusY = secondaryRadiusY;
+        broadBrush.Opacity = fieldVisibility *
+                             (Math.Clamp(56f * intensity, 40f, 96f) / byte.MaxValue);
+        drawingSession.FillEllipse(
+            secondaryCenter,
+            secondaryRadiusX,
+            secondaryRadiusY,
+            broadBrush);
+
+        var tertiaryRadiusX = broadRadiusX * 0.76f;
+        var tertiaryRadiusY = broadRadiusY * 0.66f;
+        broadBrush.Center = tertiaryCenter;
+        broadBrush.OriginOffset = new Vector2(-direction * 5f, -2f + (slowDrift * 0.7f));
+        broadBrush.RadiusX = tertiaryRadiusX;
+        broadBrush.RadiusY = tertiaryRadiusY;
+        broadBrush.Opacity = fieldVisibility *
+                             (Math.Clamp(48f * intensity, 34f, 84f) / byte.MaxValue);
+        drawingSession.FillEllipse(
+            tertiaryCenter,
+            tertiaryRadiusX,
+            tertiaryRadiusY,
+            broadBrush);
+
+        var orbCenter = new Vector2(edgeX, centerY);
         var orbRadiusX = (38f + (bassLift * 4.2f)) * (1f + (slowerDrift * 0.018f));
         var orbRadiusY = (58f + (bassLift * 5.5f)) * (1f - (slowerDrift * 0.012f));
         var orbBrush = GetOrbGlowBrush(canvas, accent);
@@ -770,7 +843,7 @@ public sealed class EdgeWaveRenderer : IDisposable
         orbBrush.OriginOffset = new Vector2(-direction * 3.5f, -2f);
         orbBrush.RadiusX = orbRadiusX;
         orbBrush.RadiusY = orbRadiusY;
-        orbBrush.Opacity = Math.Clamp(28f * intensity, 17f, 40f) / byte.MaxValue;
+        orbBrush.Opacity = Math.Clamp(74f * intensity, 54f, 112f) / byte.MaxValue;
         drawingSession.FillEllipse(orbCenter, orbRadiusX, orbRadiusY, orbBrush);
     }
 
@@ -1098,45 +1171,37 @@ public sealed class EdgeWaveRenderer : IDisposable
 
     private void AppendVisibleArms(CanvasPathBuilder builder, Vector2[] points)
     {
-        var centerY = _canvas.ActualHeight / 2f;
-        var upperEnd = -1;
-        var lowerStart = points.Length;
-        for (var index = 0; index < points.Length; index++)
-        {
-            if (points[index].Y <= centerY - _orbAttachmentRadius)
-            {
-                upperEnd = index;
-            }
+        var centerY = (float)(_canvas.ActualHeight / 2d);
+        Span<Vector2> clippedPoints = stackalloc Vector2[RenderPointCount + 1];
+        var upperCount = CopyUpperArm(
+            points,
+            centerY - _orbAttachmentRadius,
+            clippedPoints);
+        AppendSmoothFigure(builder, clippedPoints[..upperCount]);
 
-            if (lowerStart == points.Length &&
-                points[index].Y >= centerY + _orbAttachmentRadius)
-            {
-                lowerStart = index;
-            }
-        }
-
-        AppendSmoothFigure(builder, points, 0, upperEnd);
-        AppendSmoothFigure(builder, points, lowerStart, points.Length - 1);
+        var lowerCount = CopyLowerArm(
+            points,
+            centerY + _orbAttachmentRadius,
+            clippedPoints);
+        AppendSmoothFigure(builder, clippedPoints[..lowerCount]);
     }
 
     private static void AppendSmoothFigure(
         CanvasPathBuilder builder,
-        Vector2[] points,
-        int start,
-        int end)
+        ReadOnlySpan<Vector2> points)
     {
-        if (start < 0 || end >= points.Length || end - start < 1)
+        if (points.Length < 2)
         {
             return;
         }
 
-        builder.BeginFigure(points[start]);
-        for (var index = start; index < end; index++)
+        builder.BeginFigure(points[0]);
+        for (var index = 0; index < points.Length - 1; index++)
         {
-            var previous = points[Math.Max(start, index - 1)];
+            var previous = points[Math.Max(0, index - 1)];
             var current = points[index];
             var next = points[index + 1];
-            var following = points[Math.Min(end, index + 2)];
+            var following = points[Math.Min(points.Length - 1, index + 2)];
             var minimumX = MathF.Min(current.X, next.X);
             var maximumX = MathF.Max(current.X, next.X);
             var controlOne = new Vector2(
@@ -1151,20 +1216,84 @@ public sealed class EdgeWaveRenderer : IDisposable
         builder.EndFigure(CanvasFigureLoop.Open);
     }
 
+    private static int CopyUpperArm(
+        ReadOnlySpan<Vector2> source,
+        float boundaryY,
+        Span<Vector2> destination)
+    {
+        var count = 0;
+        for (var index = 0; index < source.Length; index++)
+        {
+            var point = source[index];
+            if (point.Y < boundaryY)
+            {
+                destination[count++] = point;
+                continue;
+            }
+
+            if (point.Y == boundaryY)
+            {
+                destination[count++] = point;
+            }
+            else if (index > 0 && source[index - 1].Y < boundaryY)
+            {
+                destination[count++] = InterpolateAtY(source[index - 1], point, boundaryY);
+            }
+            break;
+        }
+
+        return count;
+    }
+
+    private static int CopyLowerArm(
+        ReadOnlySpan<Vector2> source,
+        float boundaryY,
+        Span<Vector2> destination)
+    {
+        var count = 0;
+        var index = 0;
+        while (index < source.Length && source[index].Y < boundaryY)
+        {
+            index++;
+        }
+
+        if (index > 0 && index < source.Length && source[index].Y > boundaryY)
+        {
+            destination[count++] = InterpolateAtY(source[index - 1], source[index], boundaryY);
+        }
+
+        for (; index < source.Length; index++)
+        {
+            destination[count++] = source[index];
+        }
+
+        return count;
+    }
+
+    private static Vector2 InterpolateAtY(Vector2 from, Vector2 to, float y)
+    {
+        var deltaY = to.Y - from.Y;
+        if (MathF.Abs(deltaY) < 0.0001f)
+        {
+            return new Vector2((from.X + to.X) * 0.5f, y);
+        }
+
+        var amount = Math.Clamp((y - from.Y) / deltaY, 0, 1);
+        return new Vector2(Lerp(from.X, to.X, amount), y);
+    }
+
     private CanvasLinearGradientBrush GetVerticalOpacityMask(CanvasControl canvas, float height)
     {
         _verticalOpacityMask ??= new CanvasLinearGradientBrush(
             canvas,
             [
                 new CanvasGradientStop { Position = 0f, Color = Color.FromArgb(0, 255, 255, 255) },
-                new CanvasGradientStop { Position = 0.065f, Color = Color.FromArgb(14, 255, 255, 255) },
-                new CanvasGradientStop { Position = 0.19f, Color = Color.FromArgb(90, 255, 255, 255) },
-                new CanvasGradientStop { Position = 0.34f, Color = Color.FromArgb(210, 255, 255, 255) },
-                new CanvasGradientStop { Position = 0.46f, Color = Color.FromArgb(255, 255, 255, 255) },
-                new CanvasGradientStop { Position = 0.54f, Color = Color.FromArgb(255, 255, 255, 255) },
-                new CanvasGradientStop { Position = 0.66f, Color = Color.FromArgb(210, 255, 255, 255) },
-                new CanvasGradientStop { Position = 0.81f, Color = Color.FromArgb(90, 255, 255, 255) },
-                new CanvasGradientStop { Position = 0.935f, Color = Color.FromArgb(14, 255, 255, 255) },
+                new CanvasGradientStop { Position = 0.018f, Color = Color.FromArgb(48, 255, 255, 255) },
+                new CanvasGradientStop { Position = 0.045f, Color = Color.FromArgb(188, 255, 255, 255) },
+                new CanvasGradientStop { Position = 0.080f, Color = Color.FromArgb(255, 255, 255, 255) },
+                new CanvasGradientStop { Position = 0.920f, Color = Color.FromArgb(255, 255, 255, 255) },
+                new CanvasGradientStop { Position = 0.955f, Color = Color.FromArgb(188, 255, 255, 255) },
+                new CanvasGradientStop { Position = 0.982f, Color = Color.FromArgb(48, 255, 255, 255) },
                 new CanvasGradientStop { Position = 1f, Color = Color.FromArgb(0, 255, 255, 255) },
             ]);
         _verticalOpacityMask.StartPoint = Vector2.Zero;
@@ -1240,16 +1369,16 @@ public sealed class EdgeWaveRenderer : IDisposable
 
     private float CalculateGlowIntensity(double seconds, EdgeMotionSignal signal)
     {
-        var tide = 0.92f +
-                   ((float)Math.Sin(seconds * 0.51) * 0.045f) +
-                   ((float)Math.Sin((seconds * 0.27) + 1.14) * 0.028f);
+        var tide = 1.04f +
+                   ((float)Math.Sin(seconds * 0.51) * 0.075f) +
+                   ((float)Math.Sin((seconds * 0.27) + 1.14) * 0.045f);
         if (_isPlaying)
         {
-            tide += ((float)signal.Energy * 0.18f) +
-                    ((float)signal.LowBand * 0.12f);
+            tide += ((float)signal.Energy * 0.34f) +
+                    ((float)signal.LowBand * 0.24f);
         }
 
-        return Math.Clamp(tide, 0.82f, 1.28f);
+        return Math.Clamp(tide, 0.90f, 1.65f);
     }
 
     private void DrawContourGeometry(
@@ -1293,18 +1422,92 @@ public sealed class EdgeWaveRenderer : IDisposable
 
         var normalizedLane = strandIndex / (float)(FineStrandCount - 1);
         var centerEmphasis = MathF.Sin(normalizedLane * MathF.PI);
-        return Math.Clamp((int)MathF.Round(centerEmphasis * 4f), 0, 4);
+        return Math.Clamp(
+            (int)MathF.Round(centerEmphasis * (FineStrandGeometryGroupCount - 2)),
+            0,
+            FineStrandGeometryGroupCount - 2);
     }
 
-    private double VerticalPresence(double normalized)
+    private FlowField SampleFlowField(
+        double normalized,
+        double seconds,
+        FlowCenters centers,
+        EdgeMotionSignal signal)
     {
-        var fadeDistance = _verticalReach == EdgeVerticalReach.Extended ? 0.075 : 0.135;
-        var edgeFade = SmootherStep(Math.Clamp(normalized / fadeDistance, 0, 1)) *
-                       SmootherStep(Math.Clamp((1 - normalized) / fadeDistance, 0, 1));
-        var centerSharpness = _verticalReach == EdgeVerticalReach.Extended ? 2.16 : 2.68;
-        var broadCenter = Gaussian(normalized, 0.5, centerSharpness);
-        var floor = _verticalReach == EdgeVerticalReach.Extended ? 0.085 : 0.055;
-        return edgeFade * (floor + ((1 - floor) * broadCenter));
+        var edgeFade = VerticalEdgeFade(normalized);
+
+        // Three separated pressure lanes make the whole monitor edge feel alive
+        // without periodically collapsing into one dominant center peak. Each
+        // lane bounces within its part of the screen while the slowly rotating
+        // weights hand emphasis from upper to middle to lower field.
+        var primary = Gaussian(
+            normalized,
+            centers.Primary,
+            4.25 - (signal.LowBand * 0.52));
+        var secondary = Gaussian(
+            normalized,
+            centers.Secondary,
+            4.60 - (signal.MidBand * 0.56));
+        var tertiary = Gaussian(
+            normalized,
+            centers.Tertiary,
+            4.35 - (signal.HighBand * 0.54));
+        var emphasisPhase = seconds * 0.31;
+        var primaryWeight = 0.70 + (Math.Sin(emphasisPhase) * 0.13);
+        var secondaryWeight = 0.70 + (Math.Sin(emphasisPhase + 2.094395102) * 0.13);
+        var tertiaryWeight = 0.70 + (Math.Sin(emphasisPhase + 4.188790205) * 0.13);
+        var presence = edgeFade * Math.Clamp(
+            0.36 +
+            (primary * (primaryWeight + (signal.LowBand * 0.24))) +
+            (secondary * (secondaryWeight + (signal.MidBand * 0.23))) +
+            (tertiary * (tertiaryWeight + (signal.HighBand * 0.22))),
+            0.36,
+            1.64);
+
+        return new FlowField(edgeFade, primary, secondary, tertiary, presence);
+    }
+
+    private static FlowCenters GetFlowCenters(double seconds) => new(
+        0.19 +
+        (0.11 * Math.Sin(
+            (seconds * 0.37) +
+            (Math.Sin(seconds * 0.071) * 0.48))),
+        0.50 +
+        (0.12 * Math.Sin(
+            (-seconds * 0.29) +
+            1.67 +
+            (Math.Sin(seconds * 0.097) * 0.36))),
+        0.81 +
+        (0.11 * Math.Sin(
+            (seconds * 0.33) +
+            3.96 +
+            (Math.Sin(seconds * 0.059) * 0.44))));
+
+    private double VerticalEdgeFade(double normalized)
+    {
+        var fadeDistance = _verticalReach == EdgeVerticalReach.Extended ? 0.036 : 0.064;
+        return SmootherStep(Math.Clamp(normalized / fadeDistance, 0, 1)) *
+               SmootherStep(Math.Clamp((1 - normalized) / fadeDistance, 0, 1));
+    }
+
+    private static double LimitReach(
+        double value,
+        float width,
+        float strokeAndGlowMargin,
+        double minimum)
+    {
+        var maximum = Math.Max(minimum, width - strokeAndGlowMargin);
+        value = Math.Max(minimum, value);
+        var knee = maximum * 0.78;
+        if (value <= knee || maximum - knee < 0.001)
+        {
+            return Math.Min(value, maximum);
+        }
+
+        // Smooth saturation preserves motion at high energy without producing a
+        // flat vertical peak where a hard clamp meets the transparent boundary.
+        return knee + ((maximum - knee) *
+                       (1 - Math.Exp(-(value - knee) / (maximum - knee))));
     }
 
     private void Invalidate()
@@ -1450,6 +1653,18 @@ public sealed class EdgeWaveRenderer : IDisposable
     }
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+
+    private readonly record struct FlowField(
+        double EdgeFade,
+        double Primary,
+        double Secondary,
+        double Tertiary,
+        double Presence);
+
+    private readonly record struct FlowCenters(
+        double Primary,
+        double Secondary,
+        double Tertiary);
 
     private struct FluidNode
     {

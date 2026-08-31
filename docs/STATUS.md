@@ -13,9 +13,12 @@
   acceptance, are implemented behind a development opt-in. That target is not the
   production default because it can report successful frames while presenting no
   visible pixels on at least one tested Windows/GPU path.
-- Vertically extended spring-interpolated contours with long falloff, seventeen
-  fine filaments, restrained radial pressure/bloom layers, and a stable
-  half-embedded optical mesh orb.
+- Work-area-height layout and DPI conversion are covered by deterministic core
+  tests; the compact `432 × 318` contextual bloom remains vertically centered
+  inside the `152`-DIP-wide collapsed render surface.
+- Full-height fallback input is split between a noninteractive visual HWND and a
+  compact no-redirection launcher HWND that owns only the centered orb region;
+  DPI-aware Win32 hit testing continues to constrain the expanding organic bloom.
 - Mirrored right and left inward-flowing geometry validated at runtime, with
   deterministic 100% and 125% layout/DPI coverage in core tests.
 - Layered fluid traces, glass orb, idle breathing, and restrained playing motion.
@@ -50,6 +53,12 @@
   experimental native composition path.
 - Audio-response tuning across different output devices, sample formats, music
   genres, and mixed system-audio conditions.
+- Fresh runtime visual tuning of the new full-height moving field: three traveling
+  vertical pressure zones, brighter distributed transparent glow, stronger idle
+  motion, more sensitive real-audio response, and click-through behavior outside
+  the orb/organic panel. A bounded right-edge fallback run confirmed the transparent
+  `152 × 864`-pixel surface, moving upper/middle/lower contours, and centered orb;
+  the wider wallpaper/DPI/refresh-rate matrix remains open.
 - Automatic migration when Windows changes the default render device without
   stopping the previous endpoint's active loopback stream.
 
@@ -57,6 +66,13 @@ The prior short native Debug/playing sample used about `24.7%` of one logical co
 and held private memory near `106 MiB`, with no growth across the sample. That is a
 bounded native-path sanity check, not a measurement of the current production
 Win2D path or a substitute for the long-session/GPU matrix above.
+
+The current production Win2D fallback used about `44%` of one logical core
+(`5.5%` of the eight-logical-core test machine) and `127 MiB` private memory during
+a bounded ten-second Release idle sample at the smooth 60 Hz presentation cadence.
+The richer always-moving field deliberately trades more CPU for motion quality in
+this pass; reducing that cost without reintroducing visible stepping remains part
+of the long-session optimization work.
 
 ## Intentionally deferred
 

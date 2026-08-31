@@ -9,36 +9,49 @@ public sealed class EdgeWindowLayoutTests
     private static readonly DisplayRect WorkArea = new(0, 0, 1920, 1040);
 
     [TestMethod]
-    public void CollapsedRightEdgeIsCompactAndVerticallyCenteredAtOneHundredPercent()
+    public void CollapsedRightEdgeSpansWorkAreaHeightAtOneHundredPercent()
     {
         var bounds = EdgeWindowLayout.Calculate(WorkArea, 96, EdgeSide.Right, 0);
 
-        Assert.AreEqual(112, bounds.Width);
-        Assert.AreEqual(720, bounds.Height);
-        Assert.AreEqual(1920 - 112, bounds.X);
-        Assert.AreEqual(160, bounds.Y);
+        Assert.AreEqual(152, bounds.Width);
+        Assert.AreEqual(1040, bounds.Height);
+        Assert.AreEqual(1920 - 152, bounds.X);
+        Assert.AreEqual(0, bounds.Y);
     }
 
     [TestMethod]
-    public void CollapsedLeftEdgeMirrorsAtOneHundredTwentyFivePercent()
+    public void CollapsedLeftEdgeSpansWorkAreaHeightAtOneHundredTwentyFivePercent()
     {
         var bounds = EdgeWindowLayout.Calculate(WorkArea, 120, EdgeSide.Left, 0);
 
-        Assert.AreEqual(140, bounds.Width);
-        Assert.AreEqual(900, bounds.Height);
+        Assert.AreEqual(190, bounds.Width);
+        Assert.AreEqual(1040, bounds.Height);
         Assert.AreEqual(0, bounds.X);
-        Assert.AreEqual(70, bounds.Y);
+        Assert.AreEqual(0, bounds.Y);
     }
 
     [TestMethod]
-    public void ExpandedSurfaceGrowsInwardAndRemainsCentered()
+    public void ExpandedSurfaceGrowsInwardWithoutChangingVerticalBounds()
     {
         var bounds = EdgeWindowLayout.Calculate(WorkArea, 96, EdgeSide.Right, 1);
 
         Assert.AreEqual(432, bounds.Width);
-        Assert.AreEqual(318, bounds.Height);
+        Assert.AreEqual(1040, bounds.Height);
         Assert.AreEqual(1920 - 432, bounds.X);
-        Assert.AreEqual(361, bounds.Y);
+        Assert.AreEqual(0, bounds.Y);
+    }
+
+    [TestMethod]
+    public void IntermediateExpansionOnlyInterpolatesWidth()
+    {
+        var workArea = new DisplayRect(40, 24, 1600, 900);
+
+        var bounds = EdgeWindowLayout.Calculate(workArea, 96, EdgeSide.Left, 0.5);
+
+        Assert.AreEqual(292, bounds.Width);
+        Assert.AreEqual(900, bounds.Height);
+        Assert.AreEqual(40, bounds.X);
+        Assert.AreEqual(24, bounds.Y);
     }
 
     [TestMethod]

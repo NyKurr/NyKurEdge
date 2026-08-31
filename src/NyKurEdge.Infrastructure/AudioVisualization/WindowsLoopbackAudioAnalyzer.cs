@@ -18,9 +18,9 @@ public sealed class WindowsLoopbackAudioAnalyzer : IAudioVisualizationService
     private const double LowBandUpperHz = 250;
     private const double MidBandUpperHz = 2_000;
     private const double HighBandUpperHz = 12_000;
-    private const double AttackSeconds = 0.055;
-    private const double ReleaseSeconds = 0.32;
-    private const double LevelCompression = 32;
+    private const double AttackSeconds = 0.038;
+    private const double ReleaseSeconds = 0.22;
+    private const double LevelCompression = 42;
     private const int MaximumRecoveryAttempts = 4;
 
     private static readonly TimeSpan[] RecoveryDelays =

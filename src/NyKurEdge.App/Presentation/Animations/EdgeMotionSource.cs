@@ -80,6 +80,9 @@ public sealed class AudioReactiveEdgeMotionSource(
     IEdgeMotionSource? idleSource = null) : IEdgeMotionSource
 {
     private static readonly TimeSpan FreshAudioWindow = TimeSpan.FromMilliseconds(320);
+    private const double LiveAttackSeconds = 0.040;
+    private const double LiveReleaseSeconds = 0.155;
+    private const double IdleReturnSeconds = 0.62;
     private readonly IEdgeMotionSource _idleSource = idleSource ?? new ProceduralEdgeMotionSource();
     private EdgeMotionSignal _presented;
     private double _lastSampleSeconds;
@@ -90,13 +93,7 @@ public sealed class AudioReactiveEdgeMotionSource(
         var idle = _idleSource.Sample(elapsedSeconds, isPlaying: false).Normalize();
         var spectrum = audioVisualization.Current;
         var hasLiveAudio = isPlaying && spectrum.IsFresh(FreshAudioWindow);
-        var target = hasLiveAudio
-            ? new EdgeMotionSignal(
-                0.08 + (spectrum.Energy * 0.92),
-                0.05 + (spectrum.LowBand * 0.95),
-                0.04 + (spectrum.MidBand * 0.96),
-                0.02 + (spectrum.HighBand * 0.98)).Normalize()
-            : idle;
+        var target = hasLiveAudio ? CreateAudioTarget(idle, spectrum) : idle;
 
         if (!_hasPresentedSignal)
         {
@@ -108,14 +105,53 @@ public sealed class AudioReactiveEdgeMotionSource(
 
         var deltaSeconds = Math.Clamp(elapsedSeconds - _lastSampleSeconds, 0, 0.12);
         _lastSampleSeconds = elapsedSeconds;
-        var responseSeconds = hasLiveAudio ? 0.085 : 0.62;
-        var amount = 1 - Math.Exp(-deltaSeconds / responseSeconds);
         _presented = new EdgeMotionSignal(
-            Lerp(_presented.Energy, target.Energy, amount),
-            Lerp(_presented.LowBand, target.LowBand, amount),
-            Lerp(_presented.MidBand, target.MidBand, amount),
-            Lerp(_presented.HighBand, target.HighBand, amount)).Normalize();
+            Follow(_presented.Energy, target.Energy, deltaSeconds, hasLiveAudio),
+            Follow(_presented.LowBand, target.LowBand, deltaSeconds, hasLiveAudio),
+            Follow(_presented.MidBand, target.MidBand, deltaSeconds, hasLiveAudio),
+            Follow(_presented.HighBand, target.HighBand, deltaSeconds, hasLiveAudio)).Normalize();
         return _presented;
+    }
+
+    private static EdgeMotionSignal CreateAudioTarget(
+        EdgeMotionSignal idle,
+        AudioSpectrumSnapshot spectrum)
+    {
+        // The analyzer publishes a deliberately conservative normalized level. A
+        // soft noise gate removes the output-device floor, then the concave curve
+        // makes quiet musical detail visible without pinning ordinary tracks at 1.
+        var energy = ShapeAudio(spectrum.Energy, noiseFloor: 0.020, fullScale: 0.78, exponent: 0.58);
+        var low = ShapeAudio(spectrum.LowBand, noiseFloor: 0.014, fullScale: 0.72, exponent: 0.56);
+        var mid = ShapeAudio(spectrum.MidBand, noiseFloor: 0.016, fullScale: 0.70, exponent: 0.58);
+        var high = ShapeAudio(spectrum.HighBand, noiseFloor: 0.020, fullScale: 0.66, exponent: 0.62);
+
+        return new EdgeMotionSignal(
+            idle.Energy + (energy * 0.84),
+            idle.LowBand + (low * 0.86),
+            idle.MidBand + (mid * 0.88),
+            idle.HighBand + (high * 0.82)).Normalize();
+    }
+
+    private static double ShapeAudio(double value, double noiseFloor, double fullScale, double exponent)
+    {
+        var normalized = Math.Clamp((value - noiseFloor) / (fullScale - noiseFloor), 0, 1);
+
+        // A short smooth knee prevents chatter as a quiet endpoint hovers around
+        // the gate. Above the knee, musical dynamics retain their full range.
+        var knee = Math.Clamp(normalized / 0.075, 0, 1);
+        knee = knee * knee * (3 - (2 * knee));
+        return Math.Pow(normalized * knee, exponent) * 0.94;
+    }
+
+    private static double Follow(double current, double target, double deltaSeconds, bool hasLiveAudio)
+    {
+        var responseSeconds = !hasLiveAudio
+            ? IdleReturnSeconds
+            : target > current
+                ? LiveAttackSeconds
+                : LiveReleaseSeconds;
+        var amount = 1 - Math.Exp(-deltaSeconds / responseSeconds);
+        return Lerp(current, target, amount);
     }
 
     private static double Lerp(double from, double to, double amount) =>

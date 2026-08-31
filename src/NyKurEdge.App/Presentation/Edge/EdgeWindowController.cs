@@ -24,6 +24,7 @@ public sealed class EdgeWindowController : IDisposable
     private const long ExtendedStyleAppWindow = 0x00040000L;
     private const long ExtendedStyleNoActivate = 0x08000000L;
     private const long ExtendedStyleToolWindow = 0x00000080L;
+    private const long ExtendedStyleTransparent = 0x00000020L;
     private const uint SetWindowPositionNoSize = 0x0001;
     private const uint SetWindowPositionNoMove = 0x0002;
     private const uint SetWindowPositionNoActivate = 0x0010;
@@ -40,7 +41,11 @@ public sealed class EdgeWindowController : IDisposable
     private const uint GetAncestorRoot = 2;
     private const uint WindowMessageEraseBackground = 0x0014;
     private const uint WindowMessageNonClientDestroy = 0x0082;
+    private const uint WindowMessageNcHitTest = 0x0084;
     private const uint WindowMessageDwmCompositionChanged = 0x031E;
+    private const int HitTestClient = 1;
+    private const int HitTestTransparent = -1;
+    private const double ExpandedBackdropStartProgress = 0.42;
     private static readonly UIntPtr WindowSubclassId = new(0x4E45);
 
     private static readonly IntPtr TopMostWindow = new(-1);
@@ -62,6 +67,7 @@ public sealed class EdgeWindowController : IDisposable
     private readonly DispatcherQueueTimer _displayPollTimer;
     private readonly Stopwatch _animationClock = new();
     private readonly NativeEdgeCompositionHost? _nativeOverlay;
+    private readonly EdgeLauncherInputHost? _launcherInputHost;
     private readonly bool _visualInspectionMode;
 #if NYKUR_EDGE_VISUAL_TEST
     private EdgeSide? _visualInspectionSide;
@@ -85,6 +91,8 @@ public sealed class EdgeWindowController : IDisposable
     private int _regionThickness;
     private int _regionProgressBucket = -1;
     private int _regionNotificationBucket = -1;
+    private bool _isVisualWindowInputTransparent;
+    private bool _isMainWindowShown;
     private double _notificationExpansion;
     private bool _disposed;
 
@@ -123,14 +131,6 @@ public sealed class EdgeWindowController : IDisposable
         }
         _isExpandedBackdropApplied = false;
         _display = displayService.GetPrimaryDisplay();
-        _nativeOverlay = NativeEdgeCompositionHost.TryCreate();
-        if (_nativeOverlay is not null)
-        {
-            _nativeOverlay.PointerEntered += OnNativeOverlayPointerEntered;
-            _nativeOverlay.PointerExited += OnNativeOverlayPointerExited;
-            _nativeOverlay.Clicked += OnNativeOverlayClicked;
-            _nativeOverlay.SecondaryClicked += OnNativeOverlaySecondaryClicked;
-        }
 #if NYKUR_EDGE_VISUAL_TEST
         _visualInspectionMode = true;
 #elif DEBUG
@@ -141,6 +141,32 @@ public sealed class EdgeWindowController : IDisposable
 #else
         _visualInspectionMode = false;
 #endif
+
+        _nativeOverlay = NativeEdgeCompositionHost.TryCreate();
+        if (_nativeOverlay is not null)
+        {
+            _nativeOverlay.PointerEntered += OnNativeOverlayPointerEntered;
+            _nativeOverlay.PointerExited += OnNativeOverlayPointerExited;
+            _nativeOverlay.Clicked += OnNativeOverlayClicked;
+            _nativeOverlay.SecondaryClicked += OnNativeOverlaySecondaryClicked;
+        }
+        else if (!_visualInspectionMode)
+        {
+            try
+            {
+                _launcherInputHost = new EdgeLauncherInputHost();
+                _launcherInputHost.PointerEntered += OnLauncherPointerEntered;
+                _launcherInputHost.PointerExited += OnLauncherPointerExited;
+                _launcherInputHost.Clicked += OnLauncherClicked;
+                _launcherInputHost.SecondaryClicked += OnLauncherSecondaryClicked;
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                // WM_NCHITTEST on the WinUI HWND remains the last-resort input
+                // path if the small native launcher cannot be created.
+                Debug.WriteLine($"Native Edge launcher input is unavailable: {exception}");
+            }
+        }
 
         ConfigurePresenter();
         ApplyNativeWindowStyles(noActivate: true);
@@ -195,8 +221,22 @@ public sealed class EdgeWindowController : IDisposable
             rootWindow = hitWindow;
         }
 
-        return rootWindow == _windowHandle ||
-               (_nativeOverlay?.OwnsInteractiveWindow(rootWindow) ?? false);
+        if (rootWindow == _windowHandle)
+        {
+            // Collapsed fallback rendering deliberately owns a full-height
+            // transparent composition surface so moving wave peaks are never
+            // clipped by a stale GDI region. Its HWND bounds are not its input
+            // bounds: only the edge-embedded launcher is interactive.
+            return _nativeOverlay is not null ||
+                   IsFallbackInteractivePoint(point);
+        }
+
+        if (_nativeOverlay?.OwnsInteractiveWindow(rootWindow) ?? false)
+        {
+            return true;
+        }
+
+        return _launcherInputHost?.OwnsWindow(rootWindow) ?? false;
     }
 
     internal bool HasNativeCollapsedSurface => _nativeOverlay is not null;
@@ -215,6 +255,8 @@ public sealed class EdgeWindowController : IDisposable
             _ = DispatcherQueue.GetForCurrentThread().TryEnqueue(
                 DispatcherQueuePriority.Low,
                 SuppressNativeFrame);
+            _isMainWindowShown = true;
+            UpdateCollapsedInteractionRouting();
             return;
         }
 
@@ -232,6 +274,8 @@ public sealed class EdgeWindowController : IDisposable
             SetWindowPositionNoActivate |
             SetWindowPositionFrameChanged |
             SetWindowPositionShowWindow);
+        _isMainWindowShown = true;
+        UpdateCollapsedInteractionRouting();
     }
 
     private static bool IsPassiveVisualInspection() =>
@@ -273,6 +317,8 @@ public sealed class EdgeWindowController : IDisposable
         var target = expanded ? 1d : 0d;
         if (Math.Abs(target - _progress) < 0.001)
         {
+            _animationTo = target;
+            UpdateCollapsedInteractionRouting();
             return;
         }
 
@@ -280,6 +326,10 @@ public sealed class EdgeWindowController : IDisposable
         _animationFrom = _progress;
         _animationTo = target;
         _animationClock.Restart();
+        // Stop the full-height visual HWND from being click-through before the
+        // first opening frame. It is restored only after the final collapsed
+        // frame, not while a closing animation is still in flight.
+        UpdateCollapsedInteractionRouting();
 
         if (immediate)
         {
@@ -334,6 +384,7 @@ public sealed class EdgeWindowController : IDisposable
         }
 
         _notificationExpansion = reservedProgress;
+        UpdateLauncherBounds();
         if (_canApplyAdaptiveRegion && _regionWidth > 0 && _regionHeight > 0)
         {
             ApplyWindowRegion(_regionWidth, _regionHeight, _progress);
@@ -395,6 +446,14 @@ public sealed class EdgeWindowController : IDisposable
             _nativeOverlay.Clicked -= OnNativeOverlayClicked;
             _nativeOverlay.SecondaryClicked -= OnNativeOverlaySecondaryClicked;
             _nativeOverlay.Dispose();
+        }
+        if (_launcherInputHost is not null)
+        {
+            _launcherInputHost.PointerEntered -= OnLauncherPointerEntered;
+            _launcherInputHost.PointerExited -= OnLauncherPointerExited;
+            _launcherInputHost.Clicked -= OnLauncherClicked;
+            _launcherInputHost.SecondaryClicked -= OnLauncherSecondaryClicked;
+            _launcherInputHost.Dispose();
         }
         _acrylicController?.RemoveAllSystemBackdropTargets();
         _acrylicController?.Dispose();
@@ -536,12 +595,36 @@ public sealed class EdgeWindowController : IDisposable
             _nativeOverlay.UpdateBounds(collapsedBounds, _display.Dpi, EffectiveSide);
             _nativeOverlay.SetExpansionProgress(expansionProgress);
         }
+        UpdateLauncherBounds();
         _appWindow.MoveAndResize(new RectInt32(bounds.X, bounds.Y, bounds.Width, bounds.Height));
-        SetBackdropVisible(expansionProgress > 0.001);
-        if (_canApplyAdaptiveRegion)
+        var showExpandedBackdrop = expansionProgress > ExpandedBackdropStartProgress;
+        if (_canApplyAdaptiveRegion && showExpandedBackdrop)
         {
+            // On opening, constrain the HWND before attaching acrylic. Otherwise
+            // the material can briefly composite through the previous full-height
+            // transparent region and reveal a one-frame slab.
             ApplyWindowRegion(bounds.Width, bounds.Height, expansionProgress);
         }
+        // The quartic opening reaches roughly 0.2 on its first render tick. A
+        // later handoff leaves several visible frames for the traveling field to
+        // recede into the orb before acrylic takes ownership of the compact bloom.
+        SetBackdropVisible(showExpandedBackdrop);
+        if (_canApplyAdaptiveRegion && !showExpandedBackdrop)
+        {
+            // On closing, detach acrylic first and only then restore the larger
+            // transparent render allowance.
+            ApplyWindowRegion(bounds.Width, bounds.Height, expansionProgress);
+        }
+        UpdateCollapsedInteractionRouting();
+    }
+
+    private void UpdateLauncherBounds()
+    {
+        _launcherInputHost?.UpdateBounds(
+            _display.WorkArea,
+            _display.Dpi,
+            EffectiveSide,
+            _notificationExpansion);
     }
 
     private void OnDisplayPollTick(DispatcherQueueTimer sender, object args)
@@ -580,8 +663,20 @@ public sealed class EdgeWindowController : IDisposable
             return;
         }
 
-        var useNativeCollapsedSurface = _nativeOverlay is not null && progress <= 0.001;
-        if (!useNativeCollapsedSurface)
+        var isCollapsed = progress <= 0.001;
+        var useNativeCollapsedSurface = _nativeOverlay is not null && isCollapsed;
+        var useFullHeightFallbackSurface =
+            _nativeOverlay is null && progress <= ExpandedBackdropStartProgress;
+        if (useFullHeightFallbackSurface)
+        {
+            // The wave can now migrate and peak anywhere along the monitor's
+            // vertical edge. A contour-shaped HRGN would either clip that
+            // motion or need rebuilding every frame. Keep the rendering region
+            // transparent and full-height; WM_NCHITTEST below supplies the
+            // much smaller input region independently.
+            UnionRegion(composite, CreateRectRegion(0, 0, width, height));
+        }
+        else if (!useNativeCollapsedSurface)
         {
             var fluidField = CreateFluidFieldRegion(
                 width,
@@ -770,6 +865,7 @@ public sealed class EdgeWindowController : IDisposable
     {
         var interactive = _isSettingsInteractive || _isPinnedInteractive;
         ApplyNativeWindowStyles(noActivate: !interactive);
+        UpdateCollapsedInteractionRouting();
         if (interactive)
         {
             _window.Activate();
@@ -784,6 +880,64 @@ public sealed class EdgeWindowController : IDisposable
             0,
             0,
             SetWindowPositionNoMove | SetWindowPositionNoSize | SetWindowPositionNoActivate);
+    }
+
+    private void UpdateCollapsedInteractionRouting()
+    {
+        var launcherOwnsCollapsedInput =
+            _launcherInputHost is not null &&
+            _isMainWindowShown &&
+            _progress <= 0.001 &&
+            _animationTo <= 0.001 &&
+            !_isPinnedInteractive &&
+            !_isSettingsInteractive;
+
+        SetVisualWindowInputTransparent(launcherOwnsCollapsedInput);
+        if (_launcherInputHost is null)
+        {
+            return;
+        }
+
+        if (_isMainWindowShown)
+        {
+            if (launcherOwnsCollapsedInput)
+            {
+                _launcherInputHost.ShowWithoutActivation();
+            }
+            else
+            {
+                // Once hover starts the bloom, the WinUI launcher button owns
+                // the same 52 x 104 DIP footprint. Retire the native target so
+                // it cannot intercept panel/settings input while expanded.
+                _launcherInputHost.Hide();
+            }
+        }
+    }
+
+    private void SetVisualWindowInputTransparent(bool transparent)
+    {
+        if (_isVisualWindowInputTransparent == transparent)
+        {
+            return;
+        }
+
+        var style = GetWindowLongPointer(_windowHandle, ExtendedStyleIndex).ToInt64();
+        style = transparent
+            ? style | ExtendedStyleTransparent
+            : style & ~ExtendedStyleTransparent;
+        _ = SetWindowLongPointer(_windowHandle, ExtendedStyleIndex, new IntPtr(style));
+        _isVisualWindowInputTransparent = transparent;
+        _ = SetWindowPos(
+            _windowHandle,
+            TopMostWindow,
+            0,
+            0,
+            0,
+            0,
+            SetWindowPositionNoMove |
+            SetWindowPositionNoSize |
+            SetWindowPositionNoActivate |
+            SetWindowPositionFrameChanged);
     }
 
     private void SetBackdropVisible(bool visible)
@@ -952,6 +1106,13 @@ public sealed class EdgeWindowController : IDisposable
 
         if (!_disposed)
         {
+            if (message == WindowMessageNcHitTest && _nativeOverlay is null)
+            {
+                return new IntPtr(
+                    IsFallbackInteractivePoint(lParam)
+                        ? HitTestClient
+                        : HitTestTransparent);
+            }
             if (message == WindowMessageDwmCompositionChanged)
             {
                 ConfigureDwmTransparency();
@@ -966,6 +1127,84 @@ public sealed class EdgeWindowController : IDisposable
         }
 
         return DefSubclassProc(windowHandle, message, wParam, lParam);
+    }
+
+    private bool IsFallbackInteractivePoint(IntPtr packedScreenPoint)
+    {
+        var packed = packedScreenPoint.ToInt64();
+        return IsFallbackInteractivePoint(new NativePoint(
+            unchecked((short)(packed & 0xFFFF)),
+            unchecked((short)((packed >> 16) & 0xFFFF))));
+    }
+
+    private bool IsFallbackInteractivePoint(NativePoint screenPoint)
+    {
+        var clientPoint = screenPoint;
+        if (!ScreenToClient(_windowHandle, ref clientPoint) ||
+            !GetClientRectangle(_windowHandle, out var clientRectangle))
+        {
+            return false;
+        }
+
+        var width = Math.Max(1, clientRectangle.Right - clientRectangle.Left);
+        var height = Math.Max(1, clientRectangle.Bottom - clientRectangle.Top);
+        var scale = _display.Dpi > 0 ? _display.Dpi / 96d : 1d;
+        var distanceFromEdge = EffectiveSide == EdgeSide.Right
+            ? width - clientPoint.X
+            : clientPoint.X;
+        var distanceFromCenter = clientPoint.Y - (height / 2d);
+
+        // Slightly pad the visible glass lens for comfortable hover targeting,
+        // while keeping the rest of the full-height wave click-through. The
+        // notification lens grows mainly inward, so its launcher envelope does
+        // the same without turning the edge into a sidebar-sized input zone.
+        var horizontalRadius = (42 + (24 * _notificationExpansion)) * scale;
+        var verticalRadius = (38 + (8 * _notificationExpansion)) * scale;
+        if (distanceFromEdge >= 0 && distanceFromEdge <= horizontalRadius)
+        {
+            var normalizedX = distanceFromEdge / horizontalRadius;
+            var normalizedY = distanceFromCenter / verticalRadius;
+            if ((normalizedX * normalizedX) + (normalizedY * normalizedY) <= 1)
+            {
+                return true;
+            }
+        }
+
+        if (_progress <= 0.001 || distanceFromEdge < 0)
+        {
+            return false;
+        }
+
+        // Match the organic panel bloom closely enough that controls remain
+        // reliable throughout the staged opening, without letting the narrow
+        // decorative wave field claim input above or below the real surface.
+        var eased = 1 - Math.Pow(1 - Math.Clamp(_progress, 0, 1), 3);
+        var orbRadius = 22 * scale;
+        var targetHeight = Math.Min(height, EdgeWindowLayout.ExpandedHeightDip * scale * 0.86);
+        var bloomHeight = orbRadius * 2 +
+                          ((targetHeight - (orbRadius * 2)) * Math.Pow(eased, 0.72));
+        var top = (height - bloomHeight) / 2d;
+        var normalized = (clientPoint.Y - top) / Math.Max(1, bloomHeight);
+        if (normalized is < 0 or > 1)
+        {
+            return false;
+        }
+
+        var edgeDistance = Math.Abs((normalized * 2) - 1);
+        const double shoulderStart = 0.76;
+        var shoulderProgress = Math.Clamp(
+            (edgeDistance - shoulderStart) / (1 - shoulderStart),
+            0,
+            1);
+        var capsule = edgeDistance <= shoulderStart
+            ? 1
+            : Math.Sqrt(Math.Max(0, 1 - (shoulderProgress * shoulderProgress)));
+        var shoulder = Gaussian(normalized, 0.5, 2.1);
+        var maximumReach = Math.Max(orbRadius, width - Math.Round(7 * scale));
+        var panelReach = orbRadius +
+                         ((maximumReach - orbRadius) * capsule *
+                          (0.94 + (shoulder * 0.06)));
+        return distanceFromEdge <= panelReach;
     }
 
     private void ReleaseWindowSubclassLifetime()
@@ -1034,6 +1273,18 @@ public sealed class EdgeWindowController : IDisposable
     private void OnNativeOverlaySecondaryClicked(object? sender, EventArgs args) =>
         CollapsedSecondaryClicked?.Invoke(this, EventArgs.Empty);
 
+    private void OnLauncherPointerEntered(object? sender, EventArgs args) =>
+        CollapsedPointerEntered?.Invoke(this, EventArgs.Empty);
+
+    private void OnLauncherPointerExited(object? sender, EventArgs args) =>
+        CollapsedPointerExited?.Invoke(this, EventArgs.Empty);
+
+    private void OnLauncherClicked(object? sender, EventArgs args) =>
+        CollapsedClicked?.Invoke(this, EventArgs.Empty);
+
+    private void OnLauncherSecondaryClicked(object? sender, EventArgs args) =>
+        CollapsedSecondaryClicked?.Invoke(this, EventArgs.Empty);
+
     private static double Gaussian(double value, double center, double sharpness) =>
         Math.Exp(-Math.Pow((value - center) * sharpness, 2));
 
@@ -1096,6 +1347,12 @@ public sealed class EdgeWindowController : IDisposable
     [DllImport("user32.dll", EntryPoint = "GetCursorPos")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetCursorPosition(out NativePoint point);
+
+    [DllImport("user32.dll", EntryPoint = "ScreenToClient")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ScreenToClient(
+        IntPtr windowHandle,
+        ref NativePoint point);
 
     [DllImport("user32.dll")]
     private static extern IntPtr WindowFromPoint(NativePoint point);
