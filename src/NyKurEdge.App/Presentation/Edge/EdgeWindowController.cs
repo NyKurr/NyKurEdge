@@ -223,12 +223,10 @@ public sealed class EdgeWindowController : IDisposable
 
         if (rootWindow == _windowHandle)
         {
-            // Collapsed fallback rendering deliberately owns a full-height
-            // transparent composition surface so moving wave peaks are never
-            // clipped by a stale GDI region. Its HWND bounds are not its input
-            // bounds: only the edge-embedded launcher is interactive.
-            return _nativeOverlay is not null ||
-                   IsFallbackInteractivePoint(point);
+            // The rendering HWND can own more transparent geometry than the
+            // interaction surface in either renderer path. Its bounds are not
+            // its input bounds: only the orb/organic bloom is interactive.
+            return IsFallbackInteractivePoint(point);
         }
 
         if (_nativeOverlay?.OwnsInteractiveWindow(rootWindow) ?? false)
@@ -907,7 +905,7 @@ public sealed class EdgeWindowController : IDisposable
             else
             {
                 // Once hover starts the bloom, the WinUI launcher button owns
-                // the same 52 x 104 DIP footprint. Retire the native target so
+                // the same tightly bounded orb footprint. Retire the native target so
                 // it cannot intercept panel/settings input while expanded.
                 _launcherInputHost.Hide();
             }
@@ -1106,7 +1104,7 @@ public sealed class EdgeWindowController : IDisposable
 
         if (!_disposed)
         {
-            if (message == WindowMessageNcHitTest && _nativeOverlay is null)
+            if (message == WindowMessageNcHitTest)
             {
                 return new IntPtr(
                     IsFallbackInteractivePoint(lParam)
@@ -1158,8 +1156,12 @@ public sealed class EdgeWindowController : IDisposable
         // while keeping the rest of the full-height wave click-through. The
         // notification lens grows mainly inward, so its launcher envelope does
         // the same without turning the edge into a sidebar-sized input zone.
-        var horizontalRadius = (42 + (24 * _notificationExpansion)) * scale;
-        var verticalRadius = (38 + (8 * _notificationExpansion)) * scale;
+        var horizontalRadius =
+            (EdgeLauncherInputHost.HorizontalRadiusDip +
+             (EdgeLauncherInputHost.NotificationHorizontalGrowthDip * _notificationExpansion)) * scale;
+        var verticalRadius =
+            (EdgeLauncherInputHost.VerticalRadiusDip +
+             (EdgeLauncherInputHost.NotificationVerticalGrowthDip * _notificationExpansion)) * scale;
         if (distanceFromEdge >= 0 && distanceFromEdge <= horizontalRadius)
         {
             var normalizedX = distanceFromEdge / horizontalRadius;

@@ -170,7 +170,22 @@ public sealed partial class MainPage : Page, IDisposable
         ViewModel.Dispose();
     }
 
-    private void OnPointerEntered(object sender, PointerRoutedEventArgs e) => HandlePointerEntered();
+    private void OnInteractionRootPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        // The HWND can span the monitor height while collapsed and during the
+        // first part of the bloom animation. Its bounds are never an activation
+        // strip: only the orb or the actual organic panel surface may retain or
+        // begin pointer interaction.
+        if (!_windowController.IsPointerOverInteractiveSurface())
+        {
+            return;
+        }
+
+        HandlePointerEntered();
+    }
+
+    private void OnEdgeLauncherPointerEntered(object sender, PointerRoutedEventArgs e) =>
+        HandlePointerEntered();
 
     private void OnCollapsedPointerEntered(object? sender, EventArgs e) => HandlePointerEntered();
 

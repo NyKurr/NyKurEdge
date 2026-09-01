@@ -34,12 +34,12 @@ internal sealed class EdgeLauncherInputHost : IDisposable
     private const int RegionAnd = 1;
     private const int ErrorClassAlreadyExists = 1410;
 
-    private const double HostWidthDip = 52;
-    private const double HostHeightDip = 104;
-    private const double HorizontalRadiusDip = 42;
-    private const double VerticalRadiusDip = 38;
-    private const double NotificationHorizontalGrowthDip = 24;
-    private const double NotificationVerticalGrowthDip = 8;
+    internal const double HostWidthDip = 40;
+    internal const double HostHeightDip = 56;
+    internal const double HorizontalRadiusDip = 30;
+    internal const double VerticalRadiusDip = 26;
+    internal const double NotificationHorizontalGrowthDip = 24;
+    internal const double NotificationVerticalGrowthDip = 8;
 
     private static readonly IntPtr TopMostWindow = new(-1);
     private static readonly WindowProcedureDelegate WindowProcedure = StaticWindowProcedure;

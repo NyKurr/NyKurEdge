@@ -127,7 +127,14 @@ compatibility is demonstrated across the target hardware matrix.
 `EdgeInteractionStateMachine` distinguishes transient pointer preview from an
 intentional pinned-open launcher state. The visible half-orb is the click target;
 pinning temporarily permits window activation, while passive hover retains the
-normal no-activation behavior.
+normal no-activation behavior. A compact native launcher HWND and a matching WinUI
+button own only the orb-sized activation footprint; entering the full-height render
+surface cannot initiate expansion while the Edge is collapsed.
+
+`NyKurNotificationAreaIcon` is a separate native shell host for the Windows
+notification area. It exposes only Open Settings and Exit, restores itself after an
+Explorer restart, and is disposed with the main window. Keeping this affordance out
+of the ambient Edge preserves its no-taskbar/no-Alt+Tab window behavior.
 
 `IEdgeMotionSource` supplies normalized energy/band values.
 `AudioReactiveEdgeMotionSource` applies a noise-gated concave response curve and

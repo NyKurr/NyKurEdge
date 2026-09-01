@@ -19,6 +19,10 @@
 - Full-height fallback input is split between a noninteractive visual HWND and a
   compact no-redirection launcher HWND that owns only the centered orb region;
   DPI-aware Win32 hit testing continues to constrain the expanding organic bloom.
+  The collapsed WinUI root is also gated, so approaching the wave above or below
+  the orb cannot trigger a preview.
+- Native Windows notification-area registration with NyKur Edge branding, Open
+  Settings and Exit commands, deterministic cleanup, and Explorer-restart recovery.
 - Mirrored right and left inward-flowing geometry validated at runtime, with
   deterministic 100% and 125% layout/DPI coverage in core tests.
 - Layered fluid traces, glass orb, idle breathing, and restrained playing motion.

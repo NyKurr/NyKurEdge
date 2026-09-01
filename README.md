@@ -22,8 +22,10 @@ WinUI 3 application, not a browser shell or throwaway prototype.
   and edge-anchor traces. Three separated traveling vertical pressure zones
   distribute activity across the full height instead of fixing it at the center;
   the optical half-orb remains anchored to the display boundary.
-- Cubic-eased hover preview plus click-to-pin launcher behavior; the glass shell
-  grows from the orb and keeps a collapse grace period.
+- Orb-only cubic-eased hover preview plus click-to-pin launcher behavior; the
+  full-height ambient field remains click-through and cannot open the glass shell.
+- A conventional NyKur Edge notification-area icon keeps Open Settings and Exit
+  available from Windows hidden icons without adding taskbar or Alt+Tab clutter.
 - Windows global media-session discovery, live metadata, artwork, timeline, and
   previous/play-pause/next/seek commands.
 - Artwork-derived automatic accents using OKLab candidate scoring and restrained

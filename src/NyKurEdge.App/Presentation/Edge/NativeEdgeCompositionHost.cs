@@ -816,42 +816,8 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
         var distanceFromEdge = _side == EdgeSide.Right ? _widthDip - xDip : xDip;
         var orbDx = distanceFromEdge / 27d;
         var orbDy = (yDip - (_heightDip / 2d)) / 29d;
-        if ((orbDx * orbDx) + (orbDy * orbDy) <= 1)
-        {
-            return true;
-        }
-
-        var profile = FluidProfileReach(normalized);
-        return VerticalPresence(normalized) > 0.035 &&
-               Math.Abs(distanceFromEdge - profile) <= 12;
+        return (orbDx * orbDx) + (orbDy * orbDy) <= 1;
     }
-
-    private static double FluidProfileReach(double normalized)
-    {
-        var presence = VerticalPresence(normalized);
-        var center = Gaussian(normalized, 0.5, 2.05);
-        var orbChannel = Gaussian(normalized, 0.5, 15.8);
-        var shoulders =
-            Gaussian(normalized, 0.435, 20.5) +
-            Gaussian(normalized, 0.565, 20.5);
-        var distantFlow =
-            Gaussian(normalized, 0.285, 9.6) +
-            Gaussian(normalized, 0.715, 9.6);
-        return presence *
-               (2.4 + (21.5 * center) + (4.8 * shoulders) + (2.8 * distantFlow)) *
-               (1 - (orbChannel * 0.36));
-    }
-
-    private static double VerticalPresence(double normalized)
-    {
-        var edgeFade = SmootherStep(Math.Clamp(normalized / 0.105, 0, 1)) *
-                       SmootherStep(Math.Clamp((1 - normalized) / 0.105, 0, 1));
-        var center = Gaussian(normalized, 0.5, 2.05);
-        return edgeFade * (0.17 + (0.83 * center));
-    }
-
-    private static double Gaussian(double value, double center, double sharpness) =>
-        Math.Exp(-Math.Pow((value - center) * sharpness, 2));
 
     private static double SmootherStep(double value)
     {

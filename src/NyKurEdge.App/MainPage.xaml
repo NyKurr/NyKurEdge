@@ -12,7 +12,7 @@
     <Grid
         x:Name="InteractionRoot"
         Background="Transparent"
-        PointerEntered="OnPointerEntered"
+        PointerEntered="OnInteractionRootPointerEntered"
         PointerExited="OnPointerExited">
         <Grid
             x:Name="LayoutGrid"
@@ -307,8 +307,8 @@
 
                 <Button
                     x:Name="EdgeLauncherButton"
-                    Width="52"
-                    Height="104"
+                    Width="40"
+                    Height="56"
                     HorizontalAlignment="Right"
                     VerticalAlignment="Center"
                     AutomationProperties.Name="Open or pin NyKur Edge"
@@ -317,7 +317,8 @@
                     Canvas.ZIndex="100"
                     Click="OnEdgeLauncherClicked"
                     IsTabStop="False"
-                    Padding="0">
+                    Padding="0"
+                    PointerEntered="OnEdgeLauncherPointerEntered">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Grid Background="{TemplateBinding Background}" />
