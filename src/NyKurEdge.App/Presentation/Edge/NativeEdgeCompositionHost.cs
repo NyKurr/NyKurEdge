@@ -29,6 +29,7 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
     private const uint WindowStylePopup = 0x80000000;
     private const uint ExtendedStyleTopMost = 0x00000008;
     private const uint ExtendedStyleToolWindow = 0x00000080;
+    private const uint ExtendedStyleTransparent = 0x00000020;
     private const uint ExtendedStyleNoRedirectionBitmap = 0x00200000;
     private const uint ExtendedStyleNoActivate = 0x08000000;
     private const uint SetWindowPositionNoActivate = 0x0010;
@@ -118,6 +119,7 @@ internal sealed class NativeEdgeCompositionHost : IDisposable
         _selfHandle = GCHandle.Alloc(this);
         var extendedStyle = ExtendedStyleTopMost |
                             ExtendedStyleToolWindow |
+                            ExtendedStyleTransparent |
                             ExtendedStyleNoActivate;
 #if !NYKUR_EDGE_VISUAL_TEST
         // Production uses a redirection-free target so only Composition pixels

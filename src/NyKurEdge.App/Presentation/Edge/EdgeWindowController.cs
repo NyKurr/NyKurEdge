@@ -25,6 +25,8 @@ public sealed class EdgeWindowController : IDisposable
     private const long ExtendedStyleNoActivate = 0x08000000L;
     private const long ExtendedStyleToolWindow = 0x00000080L;
     private const long ExtendedStyleTransparent = 0x00000020L;
+    private const long ExtendedStyleLayered = 0x00080000L;
+    private const uint LayeredWindowAttributeAlpha = 0x00000002;
     private const uint SetWindowPositionNoSize = 0x0001;
     private const uint SetWindowPositionNoMove = 0x0002;
     private const uint SetWindowPositionNoActivate = 0x0010;
@@ -150,7 +152,7 @@ public sealed class EdgeWindowController : IDisposable
             _nativeOverlay.Clicked += OnNativeOverlayClicked;
             _nativeOverlay.SecondaryClicked += OnNativeOverlaySecondaryClicked;
         }
-        else if (!_visualInspectionMode)
+        if (!_visualInspectionMode)
         {
             try
             {
@@ -921,9 +923,21 @@ public sealed class EdgeWindowController : IDisposable
 
         var style = GetWindowLongPointer(_windowHandle, ExtendedStyleIndex).ToInt64();
         style = transparent
-            ? style | ExtendedStyleTransparent
-            : style & ~ExtendedStyleTransparent;
+            ? style | ExtendedStyleTransparent | ExtendedStyleLayered
+            : style & ~(ExtendedStyleTransparent | ExtendedStyleLayered);
         _ = SetWindowLongPointer(_windowHandle, ExtendedStyleIndex, new IntPtr(style));
+        if (transparent)
+        {
+            // HTTRANSPARENT only walks windows owned by the same UI thread.
+            // A fully opaque layered window combined with WS_EX_TRANSPARENT is
+            // the documented cross-process pass-through path; the separate
+            // region-clipped launcher HWND remains the only collapsed input.
+            _ = SetLayeredWindowAttributes(
+                _windowHandle,
+                0,
+                byte.MaxValue,
+                LayeredWindowAttributeAlpha);
+        }
         _isVisualWindowInputTransparent = transparent;
         _ = SetWindowPos(
             _windowHandle,
@@ -1334,6 +1348,14 @@ public sealed class EdgeWindowController : IDisposable
 
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
     private static extern IntPtr SetWindowLongPtr64(IntPtr windowHandle, int index, IntPtr value);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetLayeredWindowAttributes(
+        IntPtr windowHandle,
+        uint colorKey,
+        byte alpha,
+        uint flags);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

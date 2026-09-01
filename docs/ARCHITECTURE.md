@@ -129,7 +129,9 @@ intentional pinned-open launcher state. The visible half-orb is the click target
 pinning temporarily permits window activation, while passive hover retains the
 normal no-activation behavior. A compact native launcher HWND and a matching WinUI
 button own only the orb-sized activation footprint; entering the full-height render
-surface cannot initiate expansion while the Edge is collapsed.
+surface cannot initiate expansion while the Edge is collapsed. The visual HWND uses
+layered `WS_EX_TRANSPARENT` pass-through while collapsed, because `HTTRANSPARENT`
+alone is limited to windows on the same UI thread.
 
 `NyKurNotificationAreaIcon` is a separate native shell host for the Windows
 notification area. It exposes only Open Settings and Exit, restores itself after an

@@ -20,7 +20,8 @@
   compact no-redirection launcher HWND that owns only the centered orb region;
   DPI-aware Win32 hit testing continues to constrain the expanding organic bloom.
   The collapsed WinUI root is also gated, so approaching the wave above or below
-  the orb cannot trigger a preview.
+  the orb cannot trigger a preview. Cross-process runtime hit testing confirms wave
+  points resolve to the application underneath while the orb resolves to NyKur Edge.
 - Native Windows notification-area registration with NyKur Edge branding, Open
   Settings and Exit commands, deterministic cleanup, and Explorer-restart recovery.
 - Mirrored right and left inward-flowing geometry validated at runtime, with
