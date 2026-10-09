@@ -32,6 +32,14 @@ and small policies. Its tests run without a desktop session.
   buffer, never writes audio, and uses bounded recovery after capture startup or
   stream failures.
 
+The portable preview has no package identity. Notification listener creation is
+guarded and reports `Unavailable`; StartupTask already reports unavailable API
+state. Settings disables those controls without erasing packaged preferences.
+Media, clock, appearance and edge presentation use the existing implementations.
+Portable deployment settings are scoped to `NyKurEdge.App` through
+`NyKurEdgePortable=true`, so library projects and the packaged workflow keep their
+normal deployment model.
+
 `NyKurEdge.App` is the composition root and presentation layer. `AppServices`
 constructs the small service graph explicitly; there is no container or service
 locator. `EdgeViewModel` translates backend events into bindable presentation

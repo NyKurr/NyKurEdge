@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="ink" x1="28" y1="14" x2="220" y2="247" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#192a33" />
+      <stop offset=".46" stop-color="#0e1920" />
+      <stop offset="1" stop-color="#080f15" />
+    </linearGradient>
+    <linearGradient id="rim" x1="36" y1="18" x2="223" y2="240" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#c5eaf1" stop-opacity=".26" />
+      <stop offset=".5" stop-color="#8cd5e3" stop-opacity=".08" />
+      <stop offset="1" stop-color="#8cd5e3" stop-opacity=".15" />
+    </linearGradient>
+    <radialGradient id="halo" cx="155" cy="126" r="94" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#72c8de" stop-opacity=".13" />
+      <stop offset="1" stop-color="#72c8de" stop-opacity="0" />
+    </radialGradient>
+    <linearGradient id="glass" x1="150" y1="66" x2="128" y2="190" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e5fbff" />
+      <stop offset=".27" stop-color="#b7e9f1" />
+      <stop offset=".69" stop-color="#81cadc" />
+      <stop offset="1" stop-color="#5295ad" />
+    </linearGradient>
+    <linearGradient id="glassShade" x1="108" y1="128" x2="174" y2="128" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#335e71" stop-opacity=".25" />
+      <stop offset=".7" stop-color="#335e71" stop-opacity="0" />
+      <stop offset="1" stop-color="#fff" stop-opacity=".11" />
+    </linearGradient>
+    <linearGradient id="edge" x1="174" y1="35" x2="174" y2="221" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#90c9d8" stop-opacity=".15" />
+      <stop offset=".22" stop-color="#d7faff" stop-opacity=".9" />
+      <stop offset=".75" stop-color="#a6e5f1" stop-opacity=".68" />
+      <stop offset="1" stop-color="#90c9d8" stop-opacity=".14" />
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="53" fill="url(#ink)" />
+  <rect x="8.75" y="8.75" width="238.5" height="238.5" rx="52.25" fill="none" stroke="url(#rim)" stroke-width="1.5" />
+  <circle cx="155" cy="126" r="94" fill="url(#halo)" />
+  <path d="M174 66a62 62 0 0 0 0 124Z" fill="url(#glass)" />
+  <path d="M174 66a62 62 0 0 0 0 124Z" fill="url(#glassShade)" />
+  <path d="M164 74c-26 5-44 23-46 49" fill="none" stroke="#f1fdff" stroke-opacity=".78" stroke-width="2.5" stroke-linecap="round" />
+  <path d="M120 142c5 21 20 35 39 39" fill="none" stroke="#d4f6ff" stroke-opacity=".22" stroke-width="1.5" stroke-linecap="round" />
+  <path d="M174 35v186" fill="none" stroke="url(#edge)" stroke-width="2.2" stroke-linecap="round" />
+  <path d="M183 52v153" fill="none" stroke="#b7e5f0" stroke-opacity=".12" stroke-width="1.2" stroke-linecap="round" />
+  <path d="M190 75v107" fill="none" stroke="#b7e5f0" stroke-opacity=".065" stroke-width="1" stroke-linecap="round" />
+</svg>

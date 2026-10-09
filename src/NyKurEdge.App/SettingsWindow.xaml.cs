@@ -27,7 +27,7 @@ public sealed partial class SettingsWindow : Window, IDisposable
         _exitApplication = exitApplication;
         InitializeComponent();
 
-        AppWindow.SetIcon("Assets/AppIcon.ico");
+        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsResizable = false;
@@ -257,12 +257,17 @@ public sealed partial class SettingsWindow : Window, IDisposable
 
     private void UpdateNotificationAccessCopy()
     {
-        NotificationAccessLabel.Text = _services.Notifications.AccessState switch
+        var access = _services.Notifications.AccessState;
+        var available = access != NotificationAccessState.Unavailable;
+        NotificationToggle.IsEnabled = available;
+        NotificationAccessButton.IsEnabled = available;
+        NotificationPrivacyCombo.IsEnabled = available;
+        NotificationAccessLabel.Text = access switch
         {
             NotificationAccessState.Allowed => "Notification access is allowed.",
             NotificationAccessState.Denied => "Access is denied in Windows Settings.",
             NotificationAccessState.Unspecified => "Access has not been requested.",
-            _ => "The Windows notification listener is unavailable.",
+            _ => "Notification access requires a supported, installed package. It is unavailable in the portable preview.",
         };
     }
 
@@ -273,8 +278,11 @@ public sealed partial class SettingsWindow : Window, IDisposable
         _loading = true;
         StartupToggle.IsOn = enabled;
         StartupToggle.IsEnabled = state != StartupState.Unavailable;
+        StartupAvailabilityLabel.Visibility = state == StartupState.Unavailable
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         _loading = false;
-        if (_services.Settings.Current.LaunchOnStartup != enabled)
+        if (state != StartupState.Unavailable && _services.Settings.Current.LaunchOnStartup != enabled)
         {
             await UpdateSettingsAsync(settings => settings with { LaunchOnStartup = enabled });
         }

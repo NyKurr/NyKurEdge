@@ -1,0 +1,44 @@
+NyKur Edge — early development preview
+Windows 11 x64 | portable, self-contained | unsigned
+
+1. Extract the ENTIRE ZIP into a folder you can write to.
+2. Open the extracted "NyKur Edge" folder.
+3. Double-click NyKurEdge.App.exe. Keep all its companion files together.
+
+No separate .NET or Windows App SDK installation, administrator access,
+certificate installation, or Windows Developer Mode is needed for this preview.
+The app starts at the primary display's edge and has no ordinary taskbar button.
+Hover over the orb to preview; click it to pin the compact surface open.
+Use the NyKur Edge icon in the Windows notification area (possibly under the
+hidden-icons arrow) to open Settings or Exit. A desktop shortcut to the EXE is OK.
+
+Try media from a player that publishes a Windows media session. Provider support
+varies. Change the edge, accent, motion character and clock interval in Settings.
+Audio-reactive motion analyzes the default output mix in memory during playback.
+There is no recording or account requirement.
+
+LIMITS OF THIS PREVIEW
+Notification integration and "Launch with Windows" require the packaged app.
+They are disabled in this portable preview; existing saved preferences are kept.
+Only current Windows 11 x64 has been used for this preview's bounded runtime QA.
+Other hardware, graphics configurations and longer sessions need field testing.
+This is unsigned software: Windows or your browser may perform reputation checks.
+Verify the published SHA-256 and source before deciding whether to run it.
+Do not disable your device's protections or install a certificate for this ZIP.
+
+UPDATES / REMOVAL
+There is no automatic updater. Exit, download a newer preview from the official
+website, and extract it into a new folder. Settings remain in
+%LOCALAPPDATA%\NyKur Edge\settings.json.
+To remove the app, Exit and delete its extracted folder and any shortcuts.
+Delete %LOCALAPPDATA%\NyKur Edge only if you also want to remove your settings.
+No installer, startup entry or package is registered by this ZIP.
+
+Original application and artwork: Copyright (c) 2026 NyKur.
+Bundled components retain their respective license terms and notices. Read
+THIRD-PARTY-NOTICES.txt and licenses/ for the applicable component terms,
+including the Microsoft Windows App SDK terms supplied with the runtime.
+
+Official website: https://nykuredge.outerworldnwo.tr/download/
+Source / releases: https://github.com/NyKurr/NyKurEdge
+Contact: founder@nykuredge.outerworldnwo.tr

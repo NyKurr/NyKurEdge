@@ -1,5 +1,25 @@
 # Status
 
+## Public preview — 0.1.0-preview.1
+
+The first downloadable build is a **Windows 11 x64 portable ZIP**, published as a
+GitHub pre-release. It bundles .NET and Windows App SDK, carries the original
+NyKur Edge icon across executable/tray/window/package assets, and includes launch
+instructions, component notices and a SHA-256 checksum.
+
+The portable path has passed a bounded Windows 11 launch from a different working
+folder, bundled-runtime initialization, edge/tray window creation, opening
+Settings through the real tray callback and clean shutdown. All 23 core tests
+passed. This is not clean-machine, hardware-matrix or long-session certification.
+
+Notification integration and Launch with Windows are unavailable without package
+identity. Their portable UI controls are disabled; saved packaged preferences
+are retained. Existing packaged functionality remains in the contributor build.
+The startup extension's unresolved executable template token was also corrected.
+
+The preview is unsigned and has no installer or automatic updater. Trusted
+signed MSIX/store distribution remains future work. See [release notes](RELEASES.md).
+
 ## Validated in 0.1.0
 
 - Packaged WinUI application launch and clean shutdown.
@@ -90,4 +110,4 @@ of the long-session optimization work.
 - Notification replies, reactions, or destructive actions.
 - Pre-banner notification interception, which Windows does not expose through a
   reliable supported public API.
-- Final NE production iconography and installer/store distribution.
+- Trusted signed installer/MSIX/store distribution and automatic update delivery.

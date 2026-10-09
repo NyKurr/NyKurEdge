@@ -451,6 +451,13 @@ public sealed class EdgeViewModel : ObservableObject, IDisposable
         NotificationTime = string.Empty;
         NotificationIcon = null;
 
+        if (NotificationAccess == NotificationAccessState.Unavailable)
+        {
+            NotificationTitle = "Notifications unavailable";
+            NotificationMessage = "Notification access requires a supported, installed package.";
+            return;
+        }
+
         if (!_settings.Notifications.Enabled)
         {
             NotificationTitle = "Notifications are off";

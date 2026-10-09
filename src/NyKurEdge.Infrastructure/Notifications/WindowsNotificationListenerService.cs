@@ -12,10 +12,41 @@ public sealed class WindowsNotificationListenerService(IEventBus eventBus) : INo
     private const ulong MaximumIconBytes = 2 * 1024 * 1024;
     private readonly Lock _sourcesGate = new();
     private readonly HashSet<string> _sources = new(StringComparer.OrdinalIgnoreCase);
-    private readonly UserNotificationListener _listener = UserNotificationListener.Current;
+    private readonly UserNotificationListener? _listener = TryCreateListener();
     private bool _started;
 
-    public NotificationAccessState AccessState => MapAccessState(_listener.GetAccessStatus());
+    public NotificationAccessState AccessState
+    {
+        get
+        {
+            try
+            {
+                return _listener is null
+                    ? NotificationAccessState.Unavailable
+                    : MapAccessState(_listener.GetAccessStatus());
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                System.Diagnostics.Debug.WriteLine($"Notification access unavailable: {exception}");
+                return NotificationAccessState.Unavailable;
+            }
+        }
+    }
+
+    private static UserNotificationListener? TryCreateListener()
+    {
+        try
+        {
+            // The capability belongs to package identity; a portable preview has none.
+            _ = Windows.ApplicationModel.Package.Current.Id;
+            return UserNotificationListener.Current;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            System.Diagnostics.Debug.WriteLine($"Notification listener unavailable: {exception}");
+            return null;
+        }
+    }
 
     public IReadOnlyCollection<string> DiscoveredSources
     {
@@ -31,6 +62,11 @@ public sealed class WindowsNotificationListenerService(IEventBus eventBus) : INo
     public async Task<NotificationAccessState> RequestAccessAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (_listener is null)
+        {
+            return NotificationAccessState.Unavailable;
+        }
+
         var status = await _listener.RequestAccessAsync();
         cancellationToken.ThrowIfCancellationRequested();
         return MapAccessState(status);
@@ -38,7 +74,7 @@ public sealed class WindowsNotificationListenerService(IEventBus eventBus) : INo
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        if (_started || AccessState != NotificationAccessState.Allowed)
+        if (_listener is null || _started || AccessState != NotificationAccessState.Allowed)
         {
             return;
         }
@@ -60,7 +96,7 @@ public sealed class WindowsNotificationListenerService(IEventBus eventBus) : INo
 
     public Task StopAsync(CancellationToken cancellationToken = default)
     {
-        if (_started)
+        if (_listener is not null && _started)
         {
             _listener.NotificationChanged -= OnNotificationChanged;
             _started = false;
@@ -76,6 +112,11 @@ public sealed class WindowsNotificationListenerService(IEventBus eventBus) : INo
 
     private async Task HandleChangeAsync(UserNotificationChangedEventArgs args)
     {
+        if (_listener is null)
+        {
+            return;
+        }
+
         if (args.ChangeKind == UserNotificationChangedKind.Removed)
         {
             await eventBus.PublishAsync(new NotificationDismissed(args.UserNotificationId)).ConfigureAwait(false);

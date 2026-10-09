@@ -6,8 +6,28 @@ surface is a genuinely transparent, full-work-area-height fluid field with a
 half-embedded glass orb; the compact contextual glass bloom appears only when
 requested.
 
-This repository contains the initial `0.1.0` vertical slice. It is a real packaged
-WinUI 3 application, not a browser shell or throwaway prototype.
+This repository contains the initial `0.1.0` vertical slice: a native WinUI 3
+application with a packaged contributor workflow and a portable public preview.
+
+## Download the Windows preview
+
+**[Get NyKur Edge 0.1.0-preview.1](https://nykuredge.outerworldnwo.tr/download/)**
+for **Windows 11 x64**. The [GitHub pre-release](https://github.com/NyKurr/NyKurEdge/releases/tag/v0.1.0-preview.1)
+provides the complete portable ZIP, SHA-256 checksum and release notes.
+
+Extract the entire ZIP, then double-click `NyKurEdge.App.exe` inside the
+`NyKur Edge` folder. No separate .NET/Windows App SDK installation, Developer Mode
+or administrator access is required. Keep its companion files together. The
+notification-area icon opens Settings and Exit.
+
+This is an **unsigned early development preview**, not a stable commercial
+release. **Notification integration and Launch with Windows are unavailable in
+the portable preview**; they require the packaged application. Windows may apply
+reputation checks to unsigned software. See [preview instructions and limits](docs/RELEASES.md)
+before using it. No certificate installation or automatic updater is included.
+
+The new original half-orb icon is shared across the executable, tray, windows and
+MSIX assets. Its editable source and regeneration tool are in [tools/branding](tools/branding/README.md).
 
 ## Implemented vertical slice
 
@@ -106,6 +126,9 @@ the currently validated production path.
 
 ## Notification setup
 
+This section applies to the **packaged application**. The public portable preview
+disables the notification controls and reports the unavailable capability safely.
+
 Windows does not expose a supported public API that intercepts arbitrary
 notifications before their native banner appears. NyKur Edge therefore uses this
 supported workflow:
@@ -131,10 +154,15 @@ docs/
   ARCHITECTURE.md
   DEVELOPMENT.md
   STATUS.md
+  RELEASES.md
+tools/
+  branding/                 Editable icon and reproducible Windows assets
+  release/                  Self-contained ZIP builder and Windows smoke check
 ```
 
 See [architecture](docs/ARCHITECTURE.md), [development setup](docs/DEVELOPMENT.md),
 and [current status](docs/STATUS.md) for the design rationale and known boundaries.
+See the [release workflow](tools/release/README.md) to reproduce the portable preview.
 
 ## Privacy and telemetry
 

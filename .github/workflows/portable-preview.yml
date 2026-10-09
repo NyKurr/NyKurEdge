@@ -1,0 +1,36 @@
+name: Build portable Windows preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Preview version (for example 0.1.0-preview.2)
+        required: true
+        default: 0.1.0-preview.1
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Core regression tests
+        run: dotnet test tests/NyKurEdge.Core.Tests/NyKurEdge.Core.Tests.csproj -c Release --disable-build-servers
+      - name: Build self-contained preview artifact
+        shell: pwsh
+        run: ./tools/release/Build-Portable.ps1 -Version $env:RELEASE_VERSION -SkipRuntimeCheck
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nykur-edge-portable-preview
+          path: |
+            artifacts/releases/*/*.zip
+            artifacts/releases/*/SHA256SUMS.txt
+            artifacts/releases/*/release.json
+          if-no-files-found: error

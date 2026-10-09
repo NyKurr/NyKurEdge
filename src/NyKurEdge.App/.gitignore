@@ -41,6 +41,7 @@ BundleArtifacts/
 # Publish output
 publish/
 *.pubxml
+!Properties/PublishProfiles/win-x64-portable.pubxml
 PublishScripts/
 
 # Code analysis and tooling

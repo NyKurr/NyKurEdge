@@ -1,0 +1,34 @@
+NyKur Edge portable preview — bundled component notices
+
+The application bundles the .NET runtime and Windows App SDK for a self-contained
+Windows x64 launch. Component copyrights, license terms, disclaimers and notices
+are preserved under licenses/. Those terms apply to the respective components.
+
+.NET runtime / System.Numerics.Tensors — Microsoft and .NET contributors
+https://github.com/dotnet/runtime
+MIT license; third-party notices copied from the exact restored NuGet packages.
+
+Windows App SDK (Base, Foundation, Interactive Experiences, Runtime, WinUI)
+Microsoft Corporation
+https://github.com/microsoft/WindowsAppSDK
+Microsoft Windows App SDK license terms and included notices are copied from
+the exact restored NuGet packages. These terms govern the included Microsoft
+components. Use of those components is subject to those terms.
+
+Win2D — Microsoft Corporation
+https://github.com/microsoft/Win2D
+MIT license, retained as licenses/Win2D-LICENSE.txt.
+
+NAudio.Core / NAudio.Wasapi 3.0.1 — Copyright 2008-2026 Mark Heath
+https://github.com/naudio/NAudio
+MIT license, retained as licenses/NAudio-LICENSE.txt from the package's repository
+commit 0f6b856dd16396fe0fa5bbe58d140b47b048306f.
+
+Microsoft.Web.WebView2 — Microsoft Corporation
+https://learn.microsoft.com/microsoft-edge/webview2/
+Package license and notice retained when supplied in the restored package.
+The current NyKur Edge UI does not use an embedded browser.
+
+The release builder retains each restored package's top-level license and notice
+files and the .NET runtime package's third-party notices. Development-only build
+tools and the branding generator are not shipped in the portable application.

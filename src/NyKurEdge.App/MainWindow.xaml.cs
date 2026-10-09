@@ -18,7 +18,7 @@ public sealed partial class MainWindow : Window, IDisposable
         InitializeComponent();
 
         Title = "NyKur Edge";
-        AppWindow.SetIcon("Assets/AppIcon.ico");
+        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         _windowController = new EdgeWindowController(this, services.DisplayService, services.Settings);
         RootFrame.Content = new MainPage(services, _windowController, OpenSettings);
         try
