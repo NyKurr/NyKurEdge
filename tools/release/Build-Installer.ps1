@@ -66,7 +66,8 @@ try {
     $taskManifestLines = foreach ($taskFile in $taskFiles) {
         if ($taskFile.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Payload contains a reparse point: $($taskFile.Name)" }
         $taskRelative = [IO.Path]::GetRelativePath($taskStage, $taskFile.FullName).Replace('\', '/')
-        if ($taskRelative -eq '.nykur-edge-payload.sha256' -or $taskRelative -match '[|\r\n\x80-\uffff]') {
+        # Match code points exactly; IgnoreCase folds ASCII into this Unicode range.
+        if ($taskRelative -eq '.nykur-edge-payload.sha256' -or $taskRelative -cmatch '[|\r\n\x80-\uffff]') {
             throw "Reserved or invalid payload name: $taskRelative"
         }
         if (!$taskArchiveFiles.ContainsKey($taskRelative)) { throw "Unrecorded staged file: $taskRelative" }
