@@ -7,24 +7,36 @@ half-embedded glass orb; the compact contextual glass bloom appears only when
 requested.
 
 This repository contains the initial `0.1.0` vertical slice: a native WinUI 3
-application with a packaged contributor workflow and a portable public preview.
+application with a packaged contributor workflow and self-contained public
+distribution tooling for a per-user EXE installer and a portable ZIP.
 
 ## Download the Windows preview
 
-**[Get NyKur Edge 0.1.0-preview.1](https://nykuredge.outerworldnwo.tr/download/)**
-for **Windows 11 x64**. The [GitHub pre-release](https://github.com/NyKurr/NyKurEdge/releases/tag/v0.1.0-preview.1)
-provides the complete portable ZIP, SHA-256 checksum and release notes.
+**[Get NyKur Edge 0.1.0-preview.2](https://nykuredge.outerworldnwo.tr/download/)**
+for **Windows 11 x64**. The single EXE installer installs for your account, adds
+a Start Menu shortcut, offers an optional desktop shortcut, and registers normal
+removal in Windows Installed apps. The [GitHub pre-release](https://github.com/NyKurr/NyKurEdge/releases/tag/v0.1.0-preview.2)
+contains the installer, optional portable ZIP, checksums and release metadata.
 
-Extract the entire ZIP, then double-click `NyKurEdge.App.exe` inside the
-`NyKur Edge` folder. No separate .NET/Windows App SDK installation, Developer Mode
-or administrator access is required. Keep its companion files together. The
-notification-area icon opens Settings and Exit.
+Open `NyKur-Edge-0.1.0-preview.2-Setup-x64.exe`, follow Setup, and launch from its
+final page or the Start Menu. No separate .NET/Windows App SDK installation,
+Developer Mode or administrator access is requested. The notification-area icon
+opens Settings and Exit. Exit before updating; newer installers replace the same
+installation and preserve preferences. Uninstall normally through Windows
+Settings. The optional ZIP still requires extracting its entire application folder.
 
 This is an **unsigned early development preview**, not a stable commercial
 release. **Notification integration and Launch with Windows are unavailable in
-the portable preview**; they require the packaged application. Windows may apply
+both public distributions**; they require the packaged application. Windows may apply
 reputation checks to unsigned software. See [preview instructions and limits](docs/RELEASES.md)
 before using it. No certificate installation or automatic updater is included.
+
+Real silent installation, shortcut launch, upgrade/repair, running-app guards,
+downgrade refusal, rapid clean close, uninstall/reinstall and preference retention
+passed on the current Windows 11 x64 host, alongside 23 core tests. This bounded
+CLI validation does not certify the interactive wizard, a clean machine, a
+separate standard-user token or the hardware/long-session matrix. See
+[release notes](docs/RELEASES.md) and [release tooling](tools/release/README.md).
 
 The new original half-orb icon is shared across the executable, tray, windows and
 MSIX assets. Its editable source and regeneration tool are in [tools/branding](tools/branding/README.md).

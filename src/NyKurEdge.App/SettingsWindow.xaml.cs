@@ -267,7 +267,7 @@ public sealed partial class SettingsWindow : Window, IDisposable
             NotificationAccessState.Allowed => "Notification access is allowed.",
             NotificationAccessState.Denied => "Access is denied in Windows Settings.",
             NotificationAccessState.Unspecified => "Access has not been requested.",
-            _ => "Notification access requires a supported, installed package. It is unavailable in the portable preview.",
+            _ => "Notification access requires MSIX package identity. It is unavailable in this unpackaged preview.",
         };
     }
 

@@ -26,13 +26,18 @@ This is unsigned software: Windows or your browser may perform reputation checks
 Verify the published SHA-256 and source before deciding whether to run it.
 Do not disable your device's protections or install a certificate for this ZIP.
 
-UPDATES / REMOVAL
+UPDATES / REMOVAL (PORTABLE ZIP)
 There is no automatic updater. Exit, download a newer preview from the official
 website, and extract it into a new folder. Settings remain in
 %LOCALAPPDATA%\NyKur Edge\settings.json.
 To remove the app, Exit and delete its extracted folder and any shortcuts.
 Delete %LOCALAPPDATA%\NyKur Edge only if you also want to remove your settings.
 No installer, startup entry or package is registered by this ZIP.
+The official website also provides an EXE installer for per-user installation,
+Start Menu integration and removal through Windows Installed apps. Use one app
+instance at a time; both distributions share the same local settings. Exit a
+portable instance before running an installer. Do not manually copy these files
+over an installed application; use the newer installer to update it.
 
 Original application and artwork: Copyright (c) 2026 NyKur.
 Bundled components retain their respective license terms and notices. Read

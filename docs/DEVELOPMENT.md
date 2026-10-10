@@ -42,9 +42,13 @@ support uses `Microsoft.Windows.SDK.BuildTools.WinApp 0.3.1`.
 ## Commands
 
 The commands below are the packaged contributor workflow. For the downloadable
-Windows 11 x64 portable preview, use [the release builder](../tools/release/README.md).
-It bundles .NET and Windows App SDK and does not need Developer Mode. Notification
-access and StartupTask remain packaged-only features.
+Windows 11 x64 installer and portable preview, use [the release builders](../tools/release/README.md).
+They bundle .NET and Windows App SDK and do not need Developer Mode. The per-user
+EXE installer adds Start Menu/optional desktop shortcuts and normal removal from
+Windows Installed apps. Notification access and StartupTask remain packaged-only
+features. The release tooling also contains real silent install/upgrade/uninstall
+validation; interactive wizard, clean-machine and separate standard-user QA are
+separate acceptance checks.
 
 ```powershell
 dotnet msbuild NyKurEdge.slnx -t:Restore -m:1 -nr:false -p:RestoreDisableParallel=true

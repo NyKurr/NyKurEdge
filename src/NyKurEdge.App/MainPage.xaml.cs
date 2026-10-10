@@ -113,6 +113,11 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        if (_cleanedUp)
+        {
+            return;
+        }
+
 #if NYKUR_EDGE_VISUAL_TEST
         _visualTestPlaying = ViewModel.IsPlaying;
         _accentController.TransitionTo(VisualTestAccents[_visualTestAccentIndex]);
@@ -127,7 +132,13 @@ public sealed partial class MainPage : Page, IDisposable
         ViewModel.RefreshNotificationAccess();
         _ = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().TryEnqueue(
             Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
-            _windowController.EnableAdaptiveRegion);
+            () =>
+            {
+                if (!_cleanedUp)
+                {
+                    _windowController.EnableAdaptiveRegion();
+                }
+            });
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e) => Cleanup();

@@ -1,5 +1,5 @@
 param(
-    [ValidatePattern('^\d+\.\d+\.\d+-preview\.\d+$')][string]$Version = '0.1.0-preview.1',
+    [ValidatePattern('^\d+\.\d+\.\d+-preview\.\d+$')][string]$Version = '0.1.0-preview.2',
     [switch]$SkipRuntimeCheck
 )
 
@@ -8,14 +8,18 @@ $taskRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $taskReleaseRoot = Join-Path $taskRoot "artifacts/releases/$Version"
 $taskStage = Join-Path $taskReleaseRoot 'NyKur Edge'
 $taskAsset = "NyKur-Edge-$Version-win-x64.zip"
+$taskSourceCommit = & git -C $taskRoot -c "safe.directory=$($taskRoot.Replace('\', '/'))" rev-parse HEAD
+if ($LASTEXITCODE -ne 0) { throw 'A Git checkout is required for release provenance.' }
+& git -C $taskRoot -c "safe.directory=$($taskRoot.Replace('\', '/'))" diff --quiet HEAD
+if ($LASTEXITCODE -ne 0) { throw 'Commit tracked changes before building a release so its source provenance is accurate.' }
+$taskUntrackedSource = & git -C $taskRoot -c "safe.directory=$($taskRoot.Replace('\', '/'))" ls-files --others --exclude-standard -- src tools .github
+if ($LASTEXITCODE -ne 0 -or $taskUntrackedSource) { throw 'Commit new application or release-tool files before building a release.' }
 if (Test-Path -LiteralPath $taskReleaseRoot) {
     throw "Release directory already exists. Preserve or remove it explicitly before rebuilding: $taskReleaseRoot"
 }
 New-Item -ItemType Directory -Force $taskStage | Out-Null
 Push-Location $taskRoot
 try {
-    $taskSourceCommit = & git -c "safe.directory=$($taskRoot.Replace('\', '/'))" rev-parse HEAD
-    if ($LASTEXITCODE -ne 0) { throw 'A Git checkout is required for release provenance.' }
     & dotnet publish src/NyKurEdge.App/NyKurEdge.App.csproj -c Release `
         -p:Platform=x64 -p:NyKurEdgePortable=true -p:PublishProfile=win-x64-portable `
         -p:NyKurEdgeVisualTest=false -p:UseSharedCompilation=false `

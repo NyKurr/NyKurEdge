@@ -8,7 +8,7 @@ public sealed partial class MainWindow : Window, IDisposable
 {
     private readonly AppServices _services;
     private readonly EdgeWindowController _windowController;
-    private readonly NyKurNotificationAreaIcon? _notificationAreaIcon;
+    private NyKurNotificationAreaIcon? _notificationAreaIcon;
     private SettingsWindow? _settingsWindow;
     private bool _disposed;
 
@@ -21,6 +21,16 @@ public sealed partial class MainWindow : Window, IDisposable
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         _windowController = new EdgeWindowController(this, services.DisplayService, services.Settings);
         RootFrame.Content = new MainPage(services, _windowController, OpenSettings);
+        Closed += OnClosed;
+    }
+
+    public void ShowWithoutActivation()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
         try
         {
             _notificationAreaIcon = new NyKurNotificationAreaIcon(OpenSettings, Close);
@@ -30,11 +40,6 @@ public sealed partial class MainWindow : Window, IDisposable
             System.Diagnostics.Debug.WriteLine(
                 $"NyKur Edge notification-area integration is unavailable: {exception}");
         }
-        Closed += OnClosed;
-    }
-
-    public void ShowWithoutActivation()
-    {
         _windowController.ShowWithoutActivation();
     }
 

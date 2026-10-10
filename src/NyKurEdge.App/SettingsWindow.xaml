@@ -61,7 +61,7 @@
                         x:Name="StartupAvailabilityLabel"
                         FontSize="12"
                         Foreground="{StaticResource NyKurMutedTextBrush}"
-                        Text="Launch with Windows requires an installed package. Start this portable preview manually."
+                        Text="Launch with Windows requires MSIX package identity. Start this preview manually using a shortcut or the executable."
                         TextWrapping="Wrap"
                         Visibility="Collapsed" />
                     <ComboBox

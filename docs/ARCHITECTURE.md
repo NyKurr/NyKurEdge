@@ -32,7 +32,10 @@ and small policies. Its tests run without a desktop session.
   buffer, never writes audio, and uses bounded recovery after capture startup or
   stream failures.
 
-The portable preview has no package identity. Notification listener creation is
+The public installer and portable preview have no package identity. The EXE
+installer wraps the same self-contained payload with per-user shortcuts and
+normal Windows installation/uninstallation; it is not an MSIX package.
+Notification listener creation is
 guarded and reports `Unavailable`; StartupTask already reports unavailable API
 state. Settings disables those controls without erasing packaged preferences.
 Media, clock, appearance and edge presentation use the existing implementations.
@@ -40,10 +43,27 @@ Portable deployment settings are scoped to `NyKurEdge.App` through
 `NyKurEdgePortable=true`, so library projects and the packaged workflow keep their
 normal deployment model.
 
+Distribution tooling lives in `tools/release/`, outside the service graph. A
+stable Inno Setup identity supports in-place upgrades and records owned payload
+files; user settings stay in the existing separate local-data folder. A lifetime
+named mutex exposes running state to Setup/Uninstall. A separate session-local
+mutation gate serializes app startup with installation/removal; it is released
+before application runtime initialization and held by Setup only during mutation.
+Neither guard changes media, rendering or settings behavior. Obsolete payload
+cleanup runs after successful installation and preserves modified/locked files.
+[Release tooling](../tools/release/README.md)
+documents the installer identity, ownership manifest and verification contract.
+
 `NyKurEdge.App` is the composition root and presentation layer. `AppServices`
 constructs the small service graph explicitly; there is no container or service
 locator. `EdgeViewModel` translates backend events into bindable presentation
 state. `MainPage` owns only UI behavior and composition animations.
+
+Startup creates the window and its UI subscriptions before starting runtime
+providers, then exposes the window and notification-area icon after startup
+completes. Queued UI work checks window/view-model lifetime before applying
+updates. Closing disposes UI first and completes service shutdown without
+requiring the closed window's dispatcher, protecting immediate-close behavior.
 
 ## Event flow
 

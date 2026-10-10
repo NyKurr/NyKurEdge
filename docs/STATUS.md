@@ -1,5 +1,44 @@
 # Status
 
+## Windows installer preview — 0.1.0-preview.2
+
+Per-user EXE distribution tooling wraps the existing self-contained portable
+payload with a Windows light/dark-aware setup wizard, original icon, Start Menu
+shortcut, optional desktop shortcut and normal Installed apps removal. A stable
+installer identity supports upgrades in place and rejects older preview versions.
+File ownership manifests limit obsolete-payload cleanup to recorded unchanged
+files. User preferences stay in the existing separate local-data folder.
+
+The application exposes a lifetime running marker and briefly enters a separate
+session-local mutation gate during launch. Setup/Uninstall hold that gate during
+file changes and refuse a cooperating running instance. Older app versions and
+other Windows sign-in sessions are outside this mutex protocol. Automatic app
+closure is disabled; obsolete-file cleanup follows successful installation.
+Its renderer, media behavior and service architecture remain unchanged. This is
+still unpackaged; notification integration and Launch with Windows remain
+unavailable in both public distributions.
+
+Startup now creates the window and UI subscriptions before starting runtime
+providers, and exposes the window/tray only after startup completes. Shutdown
+guards queued UI callbacks against disposed state and disposes services without
+requiring the closing window's dispatcher. These changes address failures found
+during real immediate-close validation.
+
+Actual **silent CLI lifecycle validation passed on the current Windows 11 x64
+host**: installation and payload hashes, Start Menu/desktop shortcut targets,
+native launch and Settings, a private lower-version installer fixture upgraded
+in place, same-version repair, downgrade refusal, running-app maintenance guards,
+launch refusal while the mutation gate is held, three immediate close cycles,
+uninstall/reinstall and unchanged preferences. Test cleanup reported no issues.
+All 23 core tests passed and the packaged build had zero warnings/errors.
+
+This is bounded current-host verification. Interactive wizard navigation and its
+final launch checkbox, a clean VM, a separate standard-user token, cross-session
+coordination, other hardware/display configurations, long sessions, and closing
+during active media with artwork are **not certified**. Exact artifact metadata,
+publication gates and repeatable commands are in
+[release tooling](../tools/release/README.md) and [release notes](RELEASES.md).
+
 ## Public preview — 0.1.0-preview.1
 
 The first downloadable build is a **Windows 11 x64 portable ZIP**, published as a

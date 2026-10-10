@@ -214,6 +214,7 @@ public sealed class EdgeViewModel : ObservableObject, IDisposable
         _clockTimer.Tick -= OnClockTimerTick;
         _artworkCancellation?.Cancel();
         _artworkCancellation?.Dispose();
+        _artworkCancellation = null;
         foreach (var subscription in _subscriptions)
         {
             subscription.Dispose();
@@ -224,12 +225,29 @@ public sealed class EdgeViewModel : ObservableObject, IDisposable
 
     private ValueTask OnMediaChangedAsync(MediaChanged message, CancellationToken cancellationToken)
     {
-        _dispatcher.TryEnqueue(() => ApplyMedia(message.Media));
+        EnqueueIfActive(() => ApplyMedia(message.Media));
         return ValueTask.CompletedTask;
+    }
+
+    private void EnqueueIfActive(Action callback)
+    {
+        // Unsubscribing cannot retract callbacks already queued by a provider.
+        _dispatcher.TryEnqueue(() =>
+        {
+            if (!_disposed)
+            {
+                callback();
+            }
+        });
     }
 
     private void ApplyMedia(MediaSnapshot media)
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         _media = media;
         MediaTitle = media.Title;
         MediaArtist = media.Artist;
@@ -267,8 +285,18 @@ public sealed class EdgeViewModel : ObservableObject, IDisposable
     {
         try
         {
+            if (_disposed)
+            {
+                return;
+            }
+
             var image = await CreateImageAsync(artwork, cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
+            if (_disposed)
+            {
+                return;
+            }
+
             Artwork = image;
 
             AccentColor accent;
@@ -288,7 +316,10 @@ public sealed class EdgeViewModel : ObservableObject, IDisposable
             }
 
             cancellationToken.ThrowIfCancellationRequested();
-            AccentRequested?.Invoke(accent);
+            if (!_disposed)
+            {
+                AccentRequested?.Invoke(accent);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -310,12 +341,17 @@ public sealed class EdgeViewModel : ObservableObject, IDisposable
             return ValueTask.CompletedTask;
         }
 
-        _dispatcher.TryEnqueue(() => _ = ApplyNotificationAsync(message.Notification));
+        EnqueueIfActive(() => _ = ApplyNotificationAsync(message.Notification));
         return ValueTask.CompletedTask;
     }
 
     private async Task ApplyNotificationAsync(NotificationSnapshot notification)
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         _latestNotificationId = notification.Id;
         HasNotification = true;
         NotificationApplication = notification.ApplicationName;
@@ -324,7 +360,13 @@ public sealed class EdgeViewModel : ObservableObject, IDisposable
             : notification.Title;
         NotificationMessage = notification.PreviewFor(_settings.Notifications.Privacy);
         NotificationTime = FormatRelativeTime(notification.Timestamp);
-        NotificationIcon = await CreateImageAsync(notification.ApplicationIcon, CancellationToken.None);
+        var icon = await CreateImageAsync(notification.ApplicationIcon, CancellationToken.None);
+        if (_disposed)
+        {
+            return;
+        }
+
+        NotificationIcon = icon;
         NotificationArrived?.Invoke();
     }
 
@@ -334,7 +376,7 @@ public sealed class EdgeViewModel : ObservableObject, IDisposable
     {
         if (_latestNotificationId == message.NotificationId)
         {
-            _dispatcher.TryEnqueue(() =>
+            EnqueueIfActive(() =>
             {
                 HasNotification = false;
                 UpdateEmptyNotificationCopy();
@@ -346,7 +388,7 @@ public sealed class EdgeViewModel : ObservableObject, IDisposable
 
     private ValueTask OnSettingsChangedAsync(SettingsChanged message, CancellationToken cancellationToken)
     {
-        _dispatcher.TryEnqueue(() =>
+        EnqueueIfActive(() =>
         {
             _settings = message.Settings;
             RaisePropertyChanged(nameof(Settings));
@@ -366,7 +408,7 @@ public sealed class EdgeViewModel : ObservableObject, IDisposable
 
     private ValueTask OnGlanceRequestedAsync(GlanceRequested message, CancellationToken cancellationToken)
     {
-        _dispatcher.TryEnqueue(() =>
+        EnqueueIfActive(() =>
         {
             GlanceEyebrow = message.Glance.Eyebrow;
             GlancePrimary = message.Glance.PrimaryText;
@@ -379,7 +421,7 @@ public sealed class EdgeViewModel : ObservableObject, IDisposable
 
     private ValueTask OnGlanceEndedAsync(GlanceEnded message, CancellationToken cancellationToken)
     {
-        _dispatcher.TryEnqueue(() =>
+        EnqueueIfActive(() =>
         {
             IsGlanceVisible = false;
             GlanceVisibilityChanged?.Invoke(false);
@@ -387,7 +429,13 @@ public sealed class EdgeViewModel : ObservableObject, IDisposable
         return ValueTask.CompletedTask;
     }
 
-    private void OnProgressTimerTick(DispatcherQueueTimer sender, object args) => UpdateProgress();
+    private void OnProgressTimerTick(DispatcherQueueTimer sender, object args)
+    {
+        if (!_disposed)
+        {
+            UpdateProgress();
+        }
+    }
 
     private void UpdateProgress()
     {
@@ -412,14 +460,17 @@ public sealed class EdgeViewModel : ObservableObject, IDisposable
 
     private void OnClockTimerTick(DispatcherQueueTimer sender, object args)
     {
-        HeaderTime = DateTime.Now.ToString("HH:mm", CultureInfo.CurrentCulture);
+        if (!_disposed)
+        {
+            HeaderTime = DateTime.Now.ToString("HH:mm", CultureInfo.CurrentCulture);
+        }
     }
 
-    private static async Task<ImageSource?> CreateImageAsync(
+    private async Task<ImageSource?> CreateImageAsync(
         byte[]? bytes,
         CancellationToken cancellationToken)
     {
-        if (bytes is null || bytes.Length == 0)
+        if (_disposed || bytes is null || bytes.Length == 0)
         {
             return null;
         }
@@ -433,11 +484,16 @@ public sealed class EdgeViewModel : ObservableObject, IDisposable
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        if (_disposed)
+        {
+            return null;
+        }
+
         stream.Seek(0);
         var bitmap = new BitmapImage();
         await bitmap.SetSourceAsync(stream);
         cancellationToken.ThrowIfCancellationRequested();
-        return bitmap;
+        return _disposed ? null : bitmap;
     }
 
     private void UpdateEmptyNotificationCopy()

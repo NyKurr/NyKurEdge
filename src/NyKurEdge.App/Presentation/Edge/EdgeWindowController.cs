@@ -254,7 +254,13 @@ public sealed class EdgeWindowController : IDisposable
             SuppressNativeFrame();
             _ = DispatcherQueue.GetForCurrentThread().TryEnqueue(
                 DispatcherQueuePriority.Low,
-                SuppressNativeFrame);
+                () =>
+                {
+                    if (!_disposed)
+                    {
+                        SuppressNativeFrame();
+                    }
+                });
             _isMainWindowShown = true;
             UpdateCollapsedInteractionRouting();
             return;
@@ -287,7 +293,11 @@ public sealed class EdgeWindowController : IDisposable
 
     public void EnableAdaptiveRegion()
     {
-        ThrowIfDisposed();
+        if (_disposed)
+        {
+            return;
+        }
+
         _canApplyAdaptiveRegion = true;
         UpdateBounds(_progress);
     }
